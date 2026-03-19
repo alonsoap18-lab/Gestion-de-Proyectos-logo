@@ -275,7 +275,17 @@ export default function Reports() {
                     <td className="td text-center font-mono text-xs text-slate-500">S{t.start_week}–S{t.end_week}</td>
                     <td className="td text-center"><Badge status={t.status}/></td>
                     <td className="td text-center font-mono font-bold text-sm
-                      ${t.progress>=80?'text-green-400':t.progress>=40?'text-brand-400':'text-slate-400'}">{t.progress}%</td>
+                      <td
+  className={`td text-center font-mono font-bold text-sm ${
+    t.progress >= 80
+      ? 'text-green-400'
+      : t.progress >= 40
+      ? 'text-brand-400'
+      : 'text-slate-400'
+  }`}
+>
+  {t.progress}%
+</td>
                     <td className="td text-center">
                       <span className={`text-xs font-semibold ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
                         {t.priority}
