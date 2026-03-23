@@ -106,11 +106,11 @@ export default function Reports() {
       {/* Summary KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
-          ['Presupuesto Total', `$${(totalBudget/1000).toFixed(0)}K`, 'text-green-400'],
-          ['Avance Promedio',   `${avgProgress}%`,                    'text-brand-400'],
-          ['Eficiencia Tareas', `${taskDoneRate}%`,                   'text-blue-400'],
-          ['Costo Materiales',  `$${(totalMatCost/1000).toFixed(0)}K','text-yellow-400'],
-        ].map(([l, v, c]) => (
+  ['Presupuesto Total', `$${(totalBudget / 1000).toFixed(0)}K`, 'text-green-400'],
+  ['Avance Promedio', `${avgProgress}%`, 'text-brand-400'],
+  ['Eficiencia Tareas', `${taskDoneRate}%`, 'text-blue-400'],
+  ['Costo Materiales', `$${(totalMatCost / 1000).toFixed(0)}K`, 'text-yellow-400'],
+].map(([l, v, c]) => (
           <div key={l} className="card p-4 text-center">
             <div className={`text-3xl font-display font-black ${c}`}>{v}</div>
             <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">{l}</div>
