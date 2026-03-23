@@ -275,7 +275,7 @@ export default function Reports() {
                     <td className="td text-center font-mono text-xs text-slate-500">S{t.start_week}–S{t.end_week}</td>
                     <td className="td text-center"><Badge status={t.status}/></td>
                     <td className="td text-center font-mono font-bold text-sm
-                      <td
+                     <td
   className={`td text-center font-mono font-bold text-sm ${
     t.progress >= 80
       ? 'text-green-400'
