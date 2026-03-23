@@ -3,7 +3,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: 'https://gestion-de-proyectos-logo-yax5.vercel.app/login',
   timeout: 20000,
 });
 
