@@ -276,6 +276,7 @@ export default function Reports() {
                     <td className="td text-center"><Badge status={t.status}/></td>
                     <td className="td text-center font-mono font-bold text-sm
                      <td
+ <td
   className={`td text-center font-mono font-bold text-sm ${
     t.progress >= 80
       ? 'text-green-400'
