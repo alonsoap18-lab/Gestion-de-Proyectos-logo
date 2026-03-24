@@ -1,6 +1,7 @@
 // src/pages/Reports.jsx
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Spinner, Badge } from '../components/ui';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -18,14 +19,18 @@ const TABS = [
 
 function exportCSV(filename, rows, cols) {
   const header = cols.map(c => `"${c.label}"`).join(',');
-  const body   = rows.map(r => cols.map(c => `"${r[c.key]??''}"`).join(',')).join('\n');
+  const body   = rows.map(r => cols.map(c => {
+    let val = r[c.key];
+    if (val === null || val === undefined) val = '';
+    return `"${val}"`;
+  }).join(',')).join('\n');
   const blob   = new Blob([header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
 }
 
 export default function Reports() {
-  const [tab, setTab] = useState('tasks'); // Cambiado a 'tasks' por defecto para que se vea la tabla
+  const [tab, setTab] = useState('projects'); 
 
   const { data: projects = [], isLoading: lp } = useQuery({ 
     queryKey: ['projects'], 
@@ -67,11 +72,51 @@ export default function Reports() {
   const taskDoneRate = tasks.length ? Math.round((tasks.filter(t=>t.status==='Completed').length / tasks.length)*100) : 0;
   const avgProgress  = projects.length ? Math.round(projects.reduce((s,p) => s+(Number(p.progress)||0),0)/projects.length) : 0;
 
+  // Funciones de Exportación
+  const handleExportProjects = () => {
+    exportCSV('reporte_proyectos.csv', projects, [
+      { label: 'Nombre', key: 'name' },
+      { label: 'Cliente', key: 'client' },
+      { label: 'Ubicación', key: 'location' },
+      { label: 'Estado', key: 'status' },
+      { label: 'Progreso (%)', key: 'progress' },
+      { label: 'Presupuesto', key: 'budget' }
+    ]);
+  };
+
+  const handleExportTasks = () => {
+    exportCSV('reporte_tareas.csv', tasks, [
+      { label: 'Tarea', key: 'name' },
+      { label: 'Proyecto', key: 'project_name' },
+      { label: 'Asignado a', key: 'assigned_name' },
+      { label: 'Estado', key: 'status' },
+      { label: 'Progreso (%)', key: 'progress' },
+      { label: 'Prioridad', key: 'priority' }
+    ]);
+  };
+
+  const handleExportEmployees = () => {
+    exportCSV('reporte_empleados.csv', users, [
+      { label: 'Nombre', key: 'name' },
+      { label: 'Correo', key: 'email' },
+      { label: 'Rol', key: 'role' },
+      { label: 'Cargo', key: 'position' },
+      { label: 'Especialidad', key: 'specialty' },
+      { label: 'Teléfono', key: 'phone' }
+    ]);
+  };
+
   return (
     <div>
-      {/* HEADER */}
-      <div className="page-header">
+      <div className="page-header flex justify-between items-center">
         <h1 className="page-title">Reportes</h1>
+        <button className="btn-primary flex items-center gap-2" onClick={() => {
+          if (tab === 'projects') handleExportProjects();
+          if (tab === 'tasks') handleExportTasks();
+          if (tab === 'employees') handleExportEmployees();
+        }}>
+          <FileSpreadsheet size={15}/> Exportar a CSV
+        </button>
       </div>
 
       {/* KPIs */}
@@ -98,6 +143,43 @@ export default function Reports() {
           </button>
         ))}
       </div>
+
+      {/* PROJECTS TAB */}
+      {tab === 'projects' && (
+        <div className="table-wrap">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="th">Proyecto</th>
+                <th className="th">Cliente</th>
+                <th className="th">Ubicación</th>
+                <th className="th text-center">Progreso</th>
+                <th className="th">Estado</th>
+                <th className="th text-right">Presupuesto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map(p => (
+                <tr key={p.id} className="tr-hover">
+                  <td className="td font-medium text-slate-200">{p.name}</td>
+                  <td className="td text-slate-400 text-xs">{p.client || '—'}</td>
+                  <td className="td text-slate-400 text-xs">{p.location || '—'}</td>
+                  <td className={`td text-center font-bold font-mono text-xs ${p.progress >= 80 ? 'text-green-400' : p.progress >= 40 ? 'text-brand-400' : 'text-slate-400'}`}>
+                    {p.progress || 0}%
+                  </td>
+                  <td className="td"><Badge status={p.status}/></td>
+                  <td className="td text-right font-mono text-slate-300">
+                    ${Number(p.budget || 0).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+              {projects.length === 0 && (
+                <tr><td colSpan={6} className="td text-center text-slate-500 py-10">Sin proyectos registrados</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* TASKS TAB */}
       {tab === 'tasks' && (
@@ -142,16 +224,36 @@ export default function Reports() {
         </div>
       )}
 
-      {/* PLACEHOLDERS PARA OTRAS TABS */}
-      {tab === 'projects' && (
-        <div className="card p-8 text-center text-slate-500">
-          Módulo de gráficos de proyectos en construcción.
-        </div>
-      )}
-      
+      {/* EMPLOYEES TAB */}
       {tab === 'employees' && (
-        <div className="card p-8 text-center text-slate-500">
-          Módulo de rendimiento de empleados en construcción.
+        <div className="table-wrap">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="th">Nombre</th>
+                <th className="th">Correo</th>
+                <th className="th">Rol</th>
+                <th className="th">Cargo</th>
+                <th className="th">Especialidad</th>
+                <th className="th">Teléfono</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} className="tr-hover">
+                  <td className="td font-medium text-slate-200">{u.name}</td>
+                  <td className="td text-slate-400 text-xs">{u.email}</td>
+                  <td className="td text-slate-400 text-xs font-semibold">{u.role}</td>
+                  <td className="td text-slate-400 text-xs">{u.position || '—'}</td>
+                  <td className="td text-slate-400 text-xs">{u.specialty || '—'}</td>
+                  <td className="td text-slate-500 font-mono text-xs">{u.phone || '—'}</td>
+                </tr>
+              ))}
+              {users.length === 0 && (
+                <tr><td colSpan={6} className="td text-center text-slate-500 py-10">Sin empleados registrados</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
 
