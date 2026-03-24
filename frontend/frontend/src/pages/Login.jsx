@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
-import { useAuth } from '../context/AuthContext'; // Importamos el hook del context
+import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const { login, error: authError, loading: authLoading } = useAuth();
@@ -18,7 +18,7 @@ export default function Login() {
     setError('');
     setLoading(true);
 
-    const res = await login(email, password); // usamos login del AuthContext
+    const res = await login(email, password);
 
     if (!res.ok) {
       setError(res.error);
