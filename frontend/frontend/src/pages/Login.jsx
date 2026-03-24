@@ -27,7 +27,7 @@ export default function Login() {
     }
 
     setLoading(false);
-    navigate('/'); // redirige al dashboard
+    navigate('/');
   }
 
   return (
