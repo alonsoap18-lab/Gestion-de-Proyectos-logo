@@ -1,20 +1,25 @@
-// src/components/layout/Layout.jsx
-import { useAuth } from '../../context/AuthContext';
+import { useState } from 'react';
+import Sidebar from './Sidebar';
 
 export default function Layout({ children }) {
-  const { user, logout, loading } = useAuth();
-  if (loading) return <div className="text-white flex justify-center items-center h-screen">Cargando...</div>;
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-surface-900 text-white flex flex-col">
-      <header className="bg-surface-800 p-4 flex justify-between items-center">
-        <div>Logo / Menú</div>
-        <div className="flex items-center gap-4">
-          <span>{user?.email}</span>
-          <button onClick={logout} className="text-red-400 hover:text-red-600">Cerrar sesión</button>
+    <div className="flex min-h-screen bg-surface-900">
+      <Sidebar 
+        collapsed={collapsed} 
+        toggle={() => setCollapsed(c => !c)}
+      />
+
+      <main
+        className={`flex-1 min-w-0 transition-all duration-200 ${
+          collapsed ? 'ml-[60px]' : 'ml-[220px]'
+        }`}
+      >
+        <div className="p-6 max-w-[1600px] mx-auto">
+          {children}
         </div>
-      </header>
-      <main className="flex-1 p-4 overflow-auto">{children}</main>
+      </main>
     </div>
   );
 }
