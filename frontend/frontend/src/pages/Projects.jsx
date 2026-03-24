@@ -17,8 +17,9 @@ export default function Projects() {
   const [delTgt, setDelTgt] = useState(null);
   const [filter, setFilter] = useState('');
 
+  // ✅ CORRECCIÓN 1: Se cambió el queryKey para no chocar con la caché de otras pantallas
   const { data: projects = [], isLoading } = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', 'detailed'], 
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
@@ -57,6 +58,7 @@ export default function Projects() {
         if (error) throw error;
       }
     },
+    // Al invalidar ['projects'], también invalida automáticamente ['projects', 'detailed']
     onSuccess: () => { qc.invalidateQueries({queryKey: ['projects']}); setModal(false); },
     onError: (e) => alert(e.message || 'Error al guardar el proyecto')
   });
@@ -127,7 +129,8 @@ export default function Projects() {
               {p.start_date && <div className="flex items-center gap-1.5"><Calendar size={11} className="text-brand-500"/>{format(new Date(p.start_date), 'dd/MM/yyyy')}</div>}
               <div className="flex items-center gap-1.5"><Clock size={11} className="text-brand-500"/>{p.duration_weeks} semanas</div>
               {p.budget > 0 && <div className="flex items-center gap-1.5"><DollarSign size={11} className="text-brand-500"/>${Number(p.budget).toLocaleString()}</div>}
-              {p.membersCount > 0 && <div className="flex items-center gap-1.5"><Users size={11} className="text-brand-500"/>{p.membersCount} miembro(s)</div>}
+              {/* ✅ CORRECCIÓN 2: Escudos protectores para evitar colapsos visuales */}
+              {(p.membersCount ?? 0) > 0 && <div className="flex items-center gap-1.5"><Users size={11} className="text-brand-500"/>{p.membersCount} miembro(s)</div>}
             </div>
 
             <Progress value={p.progress || 0} size="sm"/>
@@ -135,8 +138,8 @@ export default function Projects() {
             <div className="flex items-center justify-between mt-3">
               <Badge status={p.status}/>
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span>{p.taskStats.total} tareas</span>
-                <span className="text-green-400">{p.taskStats.completed}✓</span>
+                <span>{p.taskStats?.total ?? 0} tareas</span>
+                <span className="text-green-400">{p.taskStats?.completed ?? 0}✓</span>
                 <ChevronRight size={13} className="text-slate-600 group-hover:text-brand-500 transition-colors"/>
               </div>
             </div>
