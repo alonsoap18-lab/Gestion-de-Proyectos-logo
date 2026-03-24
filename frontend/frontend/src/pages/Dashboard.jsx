@@ -3,14 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Progress, Badge, Spinner } from '../components/ui';
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
-} from 'recharts';
-import {
-  FolderKanban, CheckSquare, Clock, AlertTriangle,
-  TrendingUp, Users, Wrench, ChevronRight
-} from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { FolderKanban, CheckSquare, Clock, AlertTriangle, TrendingUp, Users, Wrench, ChevronRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const TASK_COLORS = {
@@ -21,13 +15,7 @@ const TASK_COLORS = {
 };
 
 function Tooltip(props) {
-  return <ReTooltip {...props} contentStyle={{
-    background:'#1c2333',
-    border:'1px solid #2d3a4f',
-    borderRadius:8,
-    color:'#e2e8f0',
-    fontSize:12
-  }}/>;
+  return <ReTooltip {...props} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>;
 }
 
 function StatCard({ icon: Icon, label, value, color, sub }) {
@@ -43,8 +31,7 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
 
   return (
     <div className="card p-4 flex items-start gap-3">
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: s.bg, border: `1px solid ${s.border}` }}>
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: s.bg, border: `1px solid ${s.border}` }}>
         <Icon size={19} style={{ color: s.text }}/>
       </div>
       <div>
@@ -64,7 +51,8 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data: projects } = await supabase.from('projects').select('*');
       const { data: tasks } = await supabase.from('tasks').select('*');
-      const { data: people } = await supabase.from('employees').select('*');
+      // Corrección: Leer de la tabla 'users' en lugar de la inexistente 'employees'
+      const { data: people } = await supabase.from('users').select('*'); 
       const { data: machinery } = await supabase.from('machinery').select('*');
 
       return {
@@ -133,8 +121,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-
-      {/* Header */}
       <div className="flex items-center gap-4">
         <div className="bg-white rounded-xl p-2 w-12 h-12 flex items-center justify-center shadow-lg">
           <img src="/icaa-logo.png" alt="ICAA"/>
@@ -142,14 +128,11 @@ export default function Dashboard() {
         <div>
           <h1 className="page-title">Dashboard</h1>
           <p className="text-slate-400 text-sm">
-            Bienvenido, <span className="text-white font-semibold">
-              {user?.name || user?.email}
-            </span>
+            Bienvenido, <span className="text-white font-semibold">{user?.name || user?.email}</span>
           </p>
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard icon={FolderKanban} label="Proyectos" value={projects.total}/>
         <StatCard icon={TrendingUp} label="Activos" value={projects.active} color="green"/>
@@ -158,16 +141,16 @@ export default function Dashboard() {
         <StatCard icon={CheckSquare} label="Completados" value={projects.completed}/>
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card p-5">
           <h3 className="section-title text-sm mb-4">Progreso por Proyecto</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={barData}>
-              <XAxis dataKey="name"/>
-              <YAxis/>
+              <XAxis dataKey="name" tick={{fill: '#94a3b8', fontSize: 12}} />
+              <YAxis tick={{fill: '#94a3b8', fontSize: 12}} />
               <Tooltip/>
-              <Bar dataKey="Progreso"/>
+              {/* Aquí aplicamos el color naranja y redondeamos las esquinas de las barras */}
+              <Bar dataKey="Progreso" fill="#f97316" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -176,7 +159,7 @@ export default function Dashboard() {
           <h3 className="section-title text-sm mb-4">Tareas</h3>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={taskPieData} dataKey="value">
+              <Pie data={taskPieData} dataKey="value" cx="50%" cy="50%" innerRadius={60} outerRadius={80}>
                 {taskPieData.map((d,i) => <Cell key={i} fill={d.color}/>)}
               </Pie>
               <Tooltip/>
