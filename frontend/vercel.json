@@ -1,37 +1,9 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
-  "installCommand": "cd api && npm install",
-  "functions": {
-    "api/**/*.js": { "runtime": "nodejs20.x" }
-  },
   "rewrites": [
-    { "source": "/api/auth/(.*)", "destination": "/api/auth" },
-    { "source": "/api/auth",      "destination": "/api/auth" },
-    { "source": "/api/users/(.*)", "destination": "/api/users" },
-    { "source": "/api/users",      "destination": "/api/users" },
-    { "source": "/api/projects/(.*)", "destination": "/api/projects" },
-    { "source": "/api/projects",      "destination": "/api/projects" },
-    { "source": "/api/tasks/(.*)", "destination": "/api/tasks" },
-    { "source": "/api/tasks",      "destination": "/api/tasks" },
-    { "source": "/api/calendar/(.*)", "destination": "/api/calendar" },
-    { "source": "/api/calendar",      "destination": "/api/calendar" },
-    { "source": "/api/machinery/(.*)", "destination": "/api/machinery" },
-    { "source": "/api/machinery",      "destination": "/api/machinery" },
-    { "source": "/api/materials/(.*)", "destination": "/api/materials" },
-    { "source": "/api/materials",      "destination": "/api/materials" },
-    { "source": "/api/dashboard",      "destination": "/api/dashboard" },
-    { "source": "/(.*)",               "destination": "/index.html" }
-  ],
-  "headers": [
     {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin",  "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization" }
-      ]
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
