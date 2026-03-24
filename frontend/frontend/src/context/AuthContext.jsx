@@ -9,19 +9,22 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Cargar sesión inicial
   useEffect(() => {
-    const getSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session?.user) {
-        await fetchUserRole(data.session.user);
+    const initAuth = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          await fetchUserRole(data.session.user);
+        }
+      } catch (err) {
+        console.error('Error al cargar sesión:', err);
+      } finally {
+        setLoading(false); // 🔹 siempre setLoading(false)
       }
-      setLoading(false);
     };
 
-    getSession();
+    initAuth();
 
-    // Escuchar cambios de sesión
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         await fetchUserRole(session.user);
@@ -34,17 +37,20 @@ export function AuthProvider({ children }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // Obtener rol del usuario desde tabla 'users'
   const fetchUserRole = async (u) => {
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', u.id)
-      .single();
-    setUser({ ...u, role: profile?.role ?? null });
+    try {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', u.id)
+        .single();
+      setUser({ ...u, role: profile?.role || 'User' }); // 🔹 asigna rol por defecto si profile es null
+    } catch (err) {
+      console.error('Error al obtener rol:', err);
+      setUser({ ...u, role: 'User' });
+    }
   };
 
-  // Login
   const login = async (email, password) => {
     setLoading(true);
     setError(null);
@@ -60,7 +66,6 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Logout
   const logout = async () => {
     setLoading(true);
     await supabase.auth.signOut();
