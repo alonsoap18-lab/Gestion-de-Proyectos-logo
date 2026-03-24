@@ -1,43 +1,39 @@
-// src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Layout from './components/layout/Layout';
 
-import Login         from './pages/Login';
-import Dashboard     from './pages/Dashboard';
-import Projects      from './pages/Projects';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
-import Tasks         from './pages/Tasks';
-import Employees     from './pages/Employees';
-import Calendar      from './pages/Calendar';
-import Reports       from './pages/Reports';
-import Machinery     from './pages/Machinery';
-import Materials     from './pages/Materials';
-import Users         from './pages/Users';
+import Tasks from './pages/Tasks';
+import Employees from './pages/Employees';
+import Calendar from './pages/Calendar';
+import Reports from './pages/Reports';
+import Machinery from './pages/Machinery';
+import Materials from './pages/Materials';
+import Users from './pages/Users';
 
-/* ── Guards ────────────────────────────────────────── */
 function Private({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div>Cargando...</div>;
+  if (loading) return <div className="text-white">Cargando...</div>;
   return user ? children : <Navigate to="/login" replace />;
 }
 
 function AdminOnly({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div>Cargando...</div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (!user.role) return <Navigate to="/" replace />;
+  if (loading) return <div className="text-white">Cargando...</div>;
+  if (!user || !user.role) return <Navigate to="/login" replace />;
   if (user.role !== 'Admin') return <Navigate to="/" replace />;
   return children;
 }
 
-/* ── Helpers ──────────────────────────────────────── */
 const P = ({ el }) => <Private><Layout>{el}</Layout></Private>;
 const A = ({ el }) => <AdminOnly><Layout>{el}</Layout></AdminOnly>;
 
 export default function App() {
   const { user, loading } = useAuth();
-  if (loading) return <div>Cargando...</div>;
+  if (loading) return <div className="text-white">Cargando...</div>;
 
   return (
     <Routes>
