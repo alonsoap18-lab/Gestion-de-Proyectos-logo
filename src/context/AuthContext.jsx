@@ -1,6 +1,6 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useState } from 'react';
-import api from '../lib/api';
+import { supabase } from '../supabase'; // ⚠️ ASEGÚRATE de que la ruta apunte a tu supabase.js (quizá sea '../lib/supabase' o '../../supabase')
 
 const Ctx = createContext(null);
 
@@ -14,13 +14,29 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { email, password });
-      localStorage.setItem('icaa_token', data.token);
-      localStorage.setItem('icaa_user',  JSON.stringify(data.user));
-      setUser(data.user);
+      // 1. Buscamos en tu tabla 'users' de Supabase el correo y la contraseña
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('password', password)
+        .single(); // single() busca que haya exactamente 1 coincidencia
+
+      // 2. Si hay error o no encuentra el usuario, rechazamos el login
+      if (error || !data) {
+        return { ok: false, error: 'Correo o contraseña incorrectos.' };
+      }
+
+      // 3. Si todo está bien, guardamos los datos del usuario para mantener la sesión
+      localStorage.setItem('icaa_user', JSON.stringify(data));
+      setUser(data);
+      
+      // Limpiamos cualquier rastro del sistema falso de Claude
+      localStorage.removeItem('icaa_token'); 
+      
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err.response?.data?.error || 'Error de conexión.' };
+      return { ok: false, error: 'Error de conexión con la base de datos.' };
     } finally {
       setLoading(false);
     }
