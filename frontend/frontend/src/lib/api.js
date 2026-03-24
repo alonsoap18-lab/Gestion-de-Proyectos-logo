@@ -1,18 +1,21 @@
-// frontend/src/lib/api.js
-// Works on Vercel (relative /api routes) and local `vercel dev`
 import axios from 'axios';
 
+// Base URL dinámico: usa env si está definido, sino localhost en dev
+const baseURL = process.env.REACT_APP_API_URL || '/api';
+
 const api = axios.create({
-  baseURL: 'https://gestion-de-proyectos-logo-yax5.vercel.app/login',
+  baseURL,
   timeout: 20000,
 });
 
+// Agregar token de Supabase o de login
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('icaa_token');
   if (token) cfg.headers.Authorization = `Bearer ${token}`;
   return cfg;
 });
 
+// Manejo de errores global
 api.interceptors.response.use(
   res => res,
   err => {
