@@ -1,7 +1,7 @@
 // src/pages/Employees.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
+import { supabase } from '../supabase'; // ⚠️ REVISA QUE ESTA RUTA APUNTE A TU supabase.js
 import { Modal, Confirm, Spinner, Empty, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Users, Mail, Phone, Briefcase, Star, Search } from 'lucide-react';
 
@@ -21,34 +21,60 @@ export default function Employees() {
   const [delTgt,  setDelTgt]  = useState(null);
   const [search,  setSearch]  = useState('');
   const [fRole,   setFRole]   = useState('');
+  const [err,     setErr]     = useState('');
 
+  // 1. LEER EMPLEADOS DIRECTO DE SUPABASE (Tabla 'users')
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users'], queryFn: () => api.get('/users').then(r => r.data),
+    queryKey: ['users'], 
+    queryFn: async () => {
+      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
   });
 
+  // 2. GUARDAR / ACTUALIZAR EMPLEADO
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/users/${form.id}`, d) : api.post('/users', d),
-    onSuccess:  () => { qc.invalidateQueries(['users']); setModal(false); },
-  });
-  const del = useMutation({
-    mutationFn: id => api.delete(`/users/${id}`),
-    onSuccess:  () => qc.invalidateQueries(['users']),
+    mutationFn: async (d) => {
+      const payload = { ...d };
+      if (!payload.password) delete payload.password;
+
+      if (payload.id) {
+        const { data, error } = await supabase.from('users').update(payload).eq('id', payload.id).select();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase.from('users').insert([payload]).select();
+        if (error) throw error;
+        return data;
+      }
+    },
+    onSuccess:  () => { qc.invalidateQueries(['users']); setModal(false); setErr(''); },
+    onError:    (e) => setErr(e.message || 'Error al guardar el empleado.')
   });
 
-  const [err, setErr] = useState('');
+  // 3. ELIMINAR EMPLEADO
+  const del = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
+    onSuccess:  () => { qc.invalidateQueries(['users']); setDelTgt(null); },
+    onError:    (e) => alert(e.message || 'Error al eliminar.')
+  });
 
   const shown = users.filter(u => {
     const q = search.toLowerCase();
-    if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false;
+    if (q && !u.name?.toLowerCase().includes(q) && !u.email?.toLowerCase().includes(q)) return false;
     if (fRole && u.role !== fRole) return false;
     return true;
   });
 
-  async function handleSubmit(e) {
+  function handleSubmit(e) {
     e.preventDefault();
     setErr('');
-    const res = await save.mutateAsync(form).catch(e => e.response?.data);
-    if (res?.error) setErr(res.error);
+    save.mutate(form);
   }
 
   if (isLoading) return <Spinner/>;
@@ -132,18 +158,18 @@ export default function Employees() {
           {err && <div className="col-span-2 text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2 border border-red-500/20">{err}</div>}
           <div className="col-span-2">
             <Field label="Nombre Completo" required>
-              <input className="input" value={form.name} onChange={e => setForm({...form,name:e.target.value})} required/>
+              <input className="input" value={form.name || ''} onChange={e => setForm({...form,name:e.target.value})} required/>
             </Field>
           </div>
           <Field label="Correo" required>
-            <input type="email" className="input" value={form.email} onChange={e => setForm({...form,email:e.target.value})} required/>
+            <input type="email" className="input" value={form.email || ''} onChange={e => setForm({...form,email:e.target.value})} required/>
           </Field>
           <Field label={form.id ? 'Nueva Contraseña (opcional)' : 'Contraseña'} required={!form.id}>
-            <input type="password" className="input" value={form.password} onChange={e => setForm({...form,password:e.target.value})}
+            <input type="password" className="input" value={form.password || ''} onChange={e => setForm({...form,password:e.target.value})}
               required={!form.id} minLength={6} placeholder={form.id ? 'Dejar en blanco para no cambiar' : ''}/>
           </Field>
           <Field label="Rol">
-            <select className="input" value={form.role} onChange={e => setForm({...form,role:e.target.value})}>
+            <select className="input" value={form.role || 'Worker'} onChange={e => setForm({...form,role:e.target.value})}>
               {ROLES.map(r => <option key={r}>{r}</option>)}
             </select>
           </Field>
