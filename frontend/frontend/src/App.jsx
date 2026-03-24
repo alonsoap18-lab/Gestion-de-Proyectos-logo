@@ -1,3 +1,4 @@
+// src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Layout from './components/layout/Layout';
@@ -32,12 +33,12 @@ const P = ({ el }) => <Private><Layout>{el}</Layout></Private>;
 const A = ({ el }) => <AdminOnly><Layout>{el}</Layout></AdminOnly>;
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
   if (loading) return <div className="text-white flex justify-center items-center h-screen">Cargando...</div>;
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={<Login />} />
       <Route path="/" element={<P el={<Dashboard />} />} />
       <Route path="/projects" element={<P el={<Projects />} />} />
       <Route path="/projects/:id" element={<P el={<ProjectDetail />} />} />
