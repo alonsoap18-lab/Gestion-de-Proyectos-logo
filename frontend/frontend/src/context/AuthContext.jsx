@@ -6,58 +6,42 @@ const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Para controlar carga inicial
   const [error, setError] = useState(null);
 
+  // Cargar sesión inicial
   useEffect(() => {
-    const initAuth = async () => {
+    const init = async () => {
       try {
         const { data } = await supabase.auth.getSession();
         if (data?.session?.user) {
-          await fetchUserRole(data.session.user);
+          setUser({ ...data.session.user, role: 'User' }); // rol por defecto
         }
       } catch (err) {
-        console.error('Error al cargar sesión:', err);
+        console.error('Error init session:', err);
       } finally {
-        setLoading(false); // 🔹 siempre setLoading(false)
+        setLoading(false);
       }
     };
+    init();
 
-    initAuth();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await fetchUserRole(session.user);
-      } else {
-        setUser(null);
-      }
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) setUser({ ...session.user, role: 'User' });
+      else setUser(null);
       setLoading(false);
     });
 
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const fetchUserRole = async (u) => {
-    try {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', u.id)
-        .single();
-      setUser({ ...u, role: profile?.role || 'User' }); // 🔹 asigna rol por defecto si profile es null
-    } catch (err) {
-      console.error('Error al obtener rol:', err);
-      setUser({ ...u, role: 'User' });
-    }
-  };
-
+  // Login
   const login = async (email, password) => {
     setLoading(true);
     setError(null);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { ok: false, error: error.message };
-      await fetchUserRole(data.user);
+      setUser({ ...data.user, role: 'User' });
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message || 'Error de conexión' };
@@ -66,6 +50,7 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Logout
   const logout = async () => {
     setLoading(true);
     await supabase.auth.signOut();
