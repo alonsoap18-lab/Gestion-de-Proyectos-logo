@@ -213,6 +213,68 @@ export default function Tasks() {
           action={<button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}><Plus size={14}/>Nueva Tarea</button>}/>
       )}
 
+     {/* Form modal */}
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
         <form onSubmit={e => { e.preventDefault(); save.mutate(form); }} className="grid grid-cols-2 gap-4">
-          <div className="col-
+          <div className="col-span-2">
+            <Field label="Nombre" required>
+              <input className="input" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} required/>
+            </Field>
+          </div>
+          <Field label="Proyecto" required>
+            <select className="input" value={form.project_id || ''} onChange={e => setForm({...form, project_id: e.target.value})} required>
+              <option value="">— Seleccionar —</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Asignado a">
+            <select className="input" value={form.assigned_to || ''} onChange={e => setForm({...form, assigned_to: e.target.value})}>
+              <option value="">— Sin asignar —</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Semana Inicio">
+            <input type="number" className="input" value={form.start_week || 1} min={1}
+              onChange={e => setForm({...form, start_week: parseInt(e.target.value)||1})}/>
+          </Field>
+          <Field label="Semana Fin">
+            <input type="number" className="input" value={form.end_week || 2} min={1}
+              onChange={e => setForm({...form, end_week: parseInt(e.target.value)||2})}/>
+          </Field>
+          <Field label="Estado">
+            <select className="input" value={form.status || 'Pending'} onChange={e => setForm({...form, status: e.target.value})}>
+              <option>Pending</option><option>Started</option><option>In Progress</option><option>Completed</option>
+            </select>
+          </Field>
+          <Field label="Prioridad">
+            <select className="input" value={form.priority || 'Medium'} onChange={e => setForm({...form, priority: e.target.value})}>
+              <option>Low</option><option>Medium</option><option>High</option>
+            </select>
+          </Field>
+          <div className="col-span-2">
+            <Field label="Progreso (%)">
+              <input type="range" className="w-full accent-brand-500" value={form.progress || 0} min={0} max={100}
+                onChange={e => setForm({...form, progress: parseInt(e.target.value)})}/>
+              <div className="text-right text-xs text-slate-400 mt-1">{form.progress || 0}%</div>
+            </Field>
+          </div>
+          <div className="col-span-2">
+            <Field label="Descripción">
+              <textarea className="input" rows={2} value={form.description||''}
+                onChange={e => setForm({...form, description: e.target.value})}/>
+            </Field>
+          </div>
+          <div className="col-span-2 flex justify-end gap-2 pt-1">
+            <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+            <button type="submit" className="btn-primary" disabled={save.isPending}>
+              {form.id ? 'Actualizar' : 'Crear Tarea'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
+        title="Eliminar Tarea" message={`¿Eliminar "${delTgt?.name}"?`}/>
+    </div>
+  );
+}
