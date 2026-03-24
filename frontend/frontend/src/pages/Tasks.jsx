@@ -31,7 +31,6 @@ export default function Tasks() {
       
       if (error) throw error;
       
-      // Mapeamos los datos para que el diseño de las tablas funcione igual
       return data.map(t => ({
         ...t,
         project_name: t.projects?.name || 'Sin proyecto',
@@ -40,7 +39,7 @@ export default function Tasks() {
     } 
   });
 
-  // 2. LEER PROYECTOS (Para llenar la lista desplegable)
+  // 2. LEER PROYECTOS
   const { data: projects = [] } = useQuery({ 
     queryKey: ['projects'], 
     queryFn: async () => {
@@ -50,7 +49,7 @@ export default function Tasks() {
     } 
   });
 
-  // 3. LEER USUARIOS (Para asignar tareas)
+  // 3. LEER USUARIOS
   const { data: users = [] } = useQuery({ 
     queryKey: ['users'],    
     queryFn: async () => {
@@ -105,7 +104,7 @@ export default function Tasks() {
     return true;
   });
 
-  // Group by project (ESTA ES LA PARTE QUE SE TE CORTÓ)
+  // Agrupar por proyecto
   const grouped = filtered.reduce((acc, t) => {
     const key = t.project_name || 'Sin proyecto';
     (acc[key] = acc[key] || []).push(t);
@@ -129,14 +128,12 @@ export default function Tasks() {
         </button>
       </div>
 
-      {/* KPI pills */}
       <div className="grid grid-cols-4 gap-3 mb-5">
         {STATUSES.map(s => {
           const cnt = tasks.filter(t => t.status === s).length;
           return (
             <div key={s}
-              className={`card p-3 cursor-pointer transition-all hover:border-surface-400
-                ${fst === s ? 'border-brand-500/50' : ''}`}
+              className={`card p-3 cursor-pointer transition-all hover:border-surface-400 ${fst === s ? 'border-brand-500/50' : ''}`}
               onClick={() => setFst(fst === s ? '' : s)}>
               <div className={`text-2xl font-display font-black ${STATUS_COLORS[s]}`}>{cnt}</div>
               <div className="text-[10px] text-slate-500 uppercase tracking-wider">{s}</div>
@@ -145,7 +142,6 @@ export default function Tasks() {
         })}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-5 items-center">
         <Filter size={13} className="text-slate-500"/>
         <select className="input max-w-[200px]" value={fpj} onChange={e => setFpj(e.target.value)}>
@@ -167,7 +163,6 @@ export default function Tasks() {
         )}
       </div>
 
-      {/* Grouped table */}
       {Object.entries(grouped).map(([projName, projTasks]) => (
         <div key={projName} className="table-wrap mb-4">
           <div className="flex items-center gap-2 px-4 py-3 bg-surface-700 border-b border-surface-600">
@@ -196,8 +191,7 @@ export default function Tasks() {
                   <td className="td"><Badge status={t.status}/></td>
                   <td className="td"><Progress value={t.progress} size="sm"/></td>
                   <td className="td">
-                    <span className={`text-xs font-semibold
-                      ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
+                    <span className={`text-xs font-semibold ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
                       {t.priority}
                     </span>
                   </td>
@@ -219,13 +213,6 @@ export default function Tasks() {
           action={<button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}><Plus size={14}/>Nueva Tarea</button>}/>
       )}
 
-      {/* Form modal */}
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
         <form onSubmit={e => { e.preventDefault(); save.mutate(form); }} className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <Field label="Nombre" required>
-              <input className="input" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} required/>
-            </Field>
-          </div>
-          <Field label="Proyecto" required>
-            <select className
+          <div className="col-
