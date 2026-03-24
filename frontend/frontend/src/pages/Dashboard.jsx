@@ -1,7 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase';
 import { Progress, Badge, Spinner } from '../components/ui';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer,
@@ -21,7 +21,13 @@ const TASK_COLORS = {
 };
 
 function Tooltip(props) {
-  return <ReTooltip {...props} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>;
+  return <ReTooltip {...props} contentStyle={{
+    background:'#1c2333',
+    border:'1px solid #2d3a4f',
+    borderRadius:8,
+    color:'#e2e8f0',
+    fontSize:12
+  }}/>;
 }
 
 function StatCard({ icon: Icon, label, value, color, sub }) {
@@ -34,6 +40,7 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
     orange: { bg:'rgba(249,115,22,0.12)', text:'#fb923c',  border:'rgba(249,115,22,0.25)' },
   };
   const s = styles[color] || styles.blue;
+
   return (
     <div className="card p-4 flex items-start gap-3">
       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -54,8 +61,39 @@ export default function Dashboard() {
 
   const { data: stats, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
-    queryFn: () => api.get('/dashboard').then(r => r.data),
-    staleTime: 1000 * 60, // 1 minuto
+    queryFn: async () => {
+      const { data: projects } = await supabase.from('projects').select('*');
+      const { data: tasks } = await supabase.from('tasks').select('*');
+      const { data: people } = await supabase.from('employees').select('*');
+      const { data: machinery } = await supabase.from('machinery').select('*');
+
+      return {
+        projects: {
+          total: projects?.length || 0,
+          active: projects?.filter(p => p.status === 'Active').length || 0,
+          planning: projects?.filter(p => p.status === 'Planning').length || 0,
+          delayed: projects?.filter(p => p.status === 'Delayed').length || 0,
+          completed: projects?.filter(p => p.status === 'Completed').length || 0,
+        },
+        tasks: {
+          total: tasks?.length || 0,
+          pending: tasks?.filter(t => t.status === 'Pending').length || 0,
+          inProgress: tasks?.filter(t => t.status === 'In Progress').length || 0,
+          completed: tasks?.filter(t => t.status === 'Completed').length || 0,
+          started: tasks?.filter(t => t.status === 'Started').length || 0,
+        },
+        people: { total: people?.length || 0 },
+        machinery: { Available: machinery?.filter(m => m.status === 'Available').length || 0 },
+        projectProgress: projects?.map(p => ({
+          id: p.id,
+          name: p.name,
+          progress: p.progress || 0,
+          status: p.status
+        })) || [],
+        recentTasks: tasks?.slice(0,5) || []
+      };
+    },
+    staleTime: 60000,
   });
 
   if (isLoading) return <Spinner/>;
@@ -63,34 +101,34 @@ export default function Dashboard() {
   if (isError || !stats) return (
     <div className="text-white flex flex-col items-center justify-center h-screen">
       <p className="text-red-400 mb-3">Error al cargar los datos del dashboard.</p>
-      <button onClick={() => window.location.reload()} className="px-4 py-2 bg-blue-600 rounded-lg">Reintentar</button>
+      <button onClick={() => window.location.reload()} className="px-4 py-2 bg-blue-600 rounded-lg">
+        Reintentar
+      </button>
     </div>
   );
 
-  // Valores por defecto si API no entrega todos los campos
   const {
-    projects = { total:0, active:0, planning:0, delayed:0, completed:0 },
-    tasks = { total:0, pending:0, inProgress:0, completed:0, started:0 },
-    people = { total:0 },
-    machinery = { Available:0 },
-    projectProgress = [],
-    recentTasks = [],
+    projects,
+    tasks,
+    people,
+    machinery,
+    projectProgress,
+    recentTasks,
   } = stats;
 
   const taskPieData = [
-    { name:'Pendientes',  value: tasks.pending,    color: TASK_COLORS.Pending      },
-    { name:'Iniciadas',   value: tasks.started,    color: TASK_COLORS.Started      },
-    { name:'En Progreso', value: tasks.inProgress, color: TASK_COLORS['In Progress']},
-    { name:'Completadas', value: tasks.completed,  color: TASK_COLORS.Completed    },
+    { name:'Pendientes', value: tasks.pending, color: TASK_COLORS.Pending },
+    { name:'En Progreso', value: tasks.inProgress, color: TASK_COLORS['In Progress'] },
+    { name:'Completadas', value: tasks.completed, color: TASK_COLORS.Completed },
   ].filter(d => d.value > 0);
 
   const barData = projectProgress.map(p => ({
-    name: p.name.length > 16 ? p.name.slice(0,16)+'…' : p.name,
+    name: p.name?.slice(0,16),
     Progreso: p.progress ?? 0,
   }));
 
   const avgProgress = projects.total > 0
-    ? Math.round(projectProgress.reduce((s,p) => s+(p.progress??0), 0) / projects.total)
+    ? Math.round(projectProgress.reduce((s,p) => s+(p.progress||0), 0) / projects.total)
     : 0;
 
   return (
@@ -98,141 +136,53 @@ export default function Dashboard() {
 
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="bg-white rounded-xl p-2 w-12 h-12 flex items-center justify-center flex-shrink-0 shadow-lg">
-          <img src="/icaa-logo.png" alt="ICAA" className="w-full h-full object-contain"/>
+        <div className="bg-white rounded-xl p-2 w-12 h-12 flex items-center justify-center shadow-lg">
+          <img src="/icaa-logo.png" alt="ICAA"/>
         </div>
         <div>
           <h1 className="page-title">Dashboard</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
-            Bienvenido, <span className="text-white font-semibold">{user?.name ?? user?.email}</span> — Grupo ICAA Constructora
+          <p className="text-slate-400 text-sm">
+            Bienvenido, <span className="text-white font-semibold">
+              {user?.name || user?.email}
+            </span>
           </p>
         </div>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard icon={FolderKanban} label="Total Proyectos" value={projects.total} color="blue"/>
-        <StatCard icon={TrendingUp}   label="Activos" value={projects.active} color="green"/>
-        <StatCard icon={Clock}        label="Planificación" value={projects.planning} color="gray"/>
-        <StatCard icon={AlertTriangle}label="Retrasados" value={projects.delayed} color="red"/>
-        <StatCard icon={CheckSquare}  label="Completados" value={projects.completed} color="gray"/>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={CheckSquare} label="Total Tareas" value={tasks.total} color="blue"/>
-        <StatCard icon={Clock}       label="Pendientes" value={tasks.pending} color="yellow"/>
-        <StatCard icon={TrendingUp}  label="En Progreso" value={tasks.inProgress} color="orange"/>
-        <StatCard icon={CheckSquare} label="Completadas" value={tasks.completed} color="green"/>
+        <StatCard icon={FolderKanban} label="Proyectos" value={projects.total}/>
+        <StatCard icon={TrendingUp} label="Activos" value={projects.active} color="green"/>
+        <StatCard icon={Clock} label="Planificación" value={projects.planning} color="gray"/>
+        <StatCard icon={AlertTriangle} label="Retrasados" value={projects.delayed} color="red"/>
+        <StatCard icon={CheckSquare} label="Completados" value={projects.completed}/>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="card p-5 lg:col-span-2">
-          <h3 className="section-title text-sm mb-4">Progreso por Proyecto</h3>
-          {barData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={barData} margin={{ bottom:50, left:-20, right:10 }}>
-                <XAxis dataKey="name" tick={{ fill:'#64748b', fontSize:10 }} angle={-35} textAnchor="end" interval={0}/>
-                <YAxis tick={{ fill:'#64748b', fontSize:11 }} domain={[0,100]}/>
-                <Tooltip/>
-                <Bar dataKey="Progreso" radius={[4,4,0,0]} fill="url(#blueGrad)"/>
-                <defs>
-                  <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#4a7fd4"/>
-                    <stop offset="100%" stopColor="#2d4fa0"/>
-                  </linearGradient>
-                </defs>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-48 text-slate-500 text-sm">Sin datos de proyectos</div>
-          )}
-        </div>
-
-        <div className="card p-5">
-          <h3 className="section-title text-sm mb-4">Tareas por Estado</h3>
-          {taskPieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={taskPieData} cx="50%" cy="45%" innerRadius={52} outerRadius={80} paddingAngle={3} dataKey="value">
-                  {taskPieData.map((d,i) => <Cell key={i} fill={d.color}/>)}
-                </Pie>
-                <Tooltip/>
-                <Legend wrapperStyle={{ fontSize:11, color:'#94a3b8', paddingTop:8 }}/>
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-48 text-slate-500 text-sm">Sin tareas</div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="section-title text-sm">Estado de Proyectos</h3>
-            <Link to="/projects" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color:'#4a7fd4' }}>
-              Ver todos <ChevronRight size={12}/>
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {projectProgress.slice(0,6).map(p => (
-              <Link key={p.id} to={`/projects/${p.id}`} className="block group">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm text-slate-200 truncate group-hover:text-[#4a7fd4] transition-colors">{p.name}</span>
-                  <Badge status={p.status}/>
-                </div>
-                <Progress value={p.progress} size="xs" showLabel={false}/>
-              </Link>
-            ))}
-            {projectProgress.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin proyectos</p>}
-          </div>
+          <h3 className="section-title text-sm mb-4">Progreso por Proyecto</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={barData}>
+              <XAxis dataKey="name"/>
+              <YAxis/>
+              <Tooltip/>
+              <Bar dataKey="Progreso"/>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
 
         <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="section-title text-sm">Actividad Reciente</h3>
-            <Link to="/tasks" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color:'#4a7fd4' }}>
-              Ver todas <ChevronRight size={12}/>
-            </Link>
-          </div>
-          <div className="space-y-2">
-            {recentTasks.map(t => (
-              <div key={t.id} className="flex items-center gap-3 py-2 border-t border-surface-600/50 first:border-0">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-slate-200 truncate">{t.name}</div>
-                  <div className="text-xs text-slate-500 truncate">{t.project_name} · {t.assigned_name}</div>
-                </div>
-                <Badge status={t.status}/>
-              </div>
-            ))}
-            {recentTasks.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin actividad</p>}
-          </div>
-        </div>
-      </div>
-
-      {/* Summary strip */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card p-4 text-center border-surface-600"
-          style={{ background: 'linear-gradient(135deg, rgba(45,79,160,0.12) 0%, rgba(45,79,160,0.04) 100%)' }}>
-          <div className="text-3xl font-display font-black text-white">{people.total}</div>
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider mt-0.5 flex items-center justify-center gap-1">
-            <Users size={11}/> Empleados Activos
-          </div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-3xl font-display font-black text-green-400">{machinery.Available || 0}</div>
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider mt-0.5 flex items-center justify-center gap-1">
-            <Wrench size={11}/> Maquinaria Disponible
-          </div>
-        </div>
-        <div className="card p-4 text-center"
-          style={{ background: 'linear-gradient(135deg, rgba(45,79,160,0.12) 0%, rgba(45,79,160,0.04) 100%)' }}>
-          <div className="text-3xl font-display font-black" style={{ color:'#4a7fd4' }}>{avgProgress}%</div>
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider mt-0.5 flex items-center justify-center gap-1">
-            <TrendingUp size={11}/> Avance General
-          </div>
+          <h3 className="section-title text-sm mb-4">Tareas</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={taskPieData} dataKey="value">
+                {taskPieData.map((d,i) => <Cell key={i} fill={d.color}/>)}
+              </Pie>
+              <Tooltip/>
+              <Legend/>
+            </PieChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
