@@ -1,52 +1,48 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase'; // asegúrate de tener tu instancia supabase
+import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // para indicar carga de sesión
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Cargar sesión al iniciar
+  // Cargar sesión inicial
   useEffect(() => {
     const getSession = async () => {
       const { data } = await supabase.auth.getSession();
       if (data.session?.user) {
-        // Obtener rol desde tu tabla 'users'
-        const { data: profile } = await supabase
-          .from('users')
-          .select('role')
-          .eq('id', data.session.user.id)
-          .single();
-
-        setUser({ ...data.session.user, role: profile?.role ?? null });
+        await fetchUserRole(data.session.user);
       }
       setLoading(false);
     };
 
     getSession();
 
-    // Escuchar cambios de sesión (login/logout)
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session?.user) {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
-          setUser({ ...session.user, role: profile?.role ?? null });
-        } else {
-          setUser(null);
-        }
-        setLoading(false);
+    // Escuchar cambios de sesión
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await fetchUserRole(session.user);
+      } else {
+        setUser(null);
       }
-    );
+      setLoading(false);
+    });
 
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  // Obtener rol del usuario desde tabla 'users'
+  const fetchUserRole = async (u) => {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', u.id)
+      .single();
+    setUser({ ...u, role: profile?.role ?? null });
+  };
 
   // Login
   const login = async (email, password) => {
@@ -54,23 +50,11 @@ export function AuthProvider({ children }) {
     setError(null);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        setError(error.message);
-        return { ok: false, error: error.message };
-      }
-
-      // Obtener rol del usuario
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', data.user.id)
-        .single();
-
-      setUser({ ...data.user, role: profile?.role ?? null });
+      if (error) return { ok: false, error: error.message };
+      await fetchUserRole(data.user);
       return { ok: true };
     } catch (err) {
-      setError(err.message || 'Error de conexión');
-      return { ok: false, error: err.message };
+      return { ok: false, error: err.message || 'Error de conexión' };
     } finally {
       setLoading(false);
     }
