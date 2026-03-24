@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import api from '../lib/api';
+import { supabase } from '../supabase'; // <-- ASEGÚRATE DE QUE ESTA RUTA APUNTE A TU ARCHIVO supabase.js
 import { Modal, Confirm, Spinner, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Shield, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -26,23 +26,64 @@ export default function Users() {
   const [fRole,  setFRole]  = useState('');
   const [err,    setErr]    = useState('');
 
+  // 1. LEER USUARIOS DESDE SUPABASE
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users'], queryFn: () => api.get('/users').then(r => r.data),
+    queryKey: ['users'], 
+    queryFn: async () => {
+      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
   });
 
+  // 2. CREAR O ACTUALIZAR USUARIO EN SUPABASE
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/users/${form.id}`, d) : api.post('/users', d),
+    mutationFn: async (d) => {
+      // Preparamos los datos a enviar
+      const payload = { ...d };
+      
+      // Si la contraseña está vacía al editar, la quitamos para no borrarla en la BD
+      if (!payload.password) {
+        delete payload.password;
+      }
+
+      if (payload.id) {
+        // ACTUALIZAR (UPDATE)
+        const { data, error } = await supabase
+          .from('users')
+          .update(payload)
+          .eq('id', payload.id)
+          .select();
+        if (error) throw error;
+        return data;
+      } else {
+        // CREAR NUEVO (INSERT)
+        const { data, error } = await supabase
+          .from('users')
+          .insert([payload])
+          .select();
+        if (error) throw error;
+        return data;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['users']); setModal(false); setErr(''); },
-    onError:    e  => setErr(e.response?.data?.error || 'Error al guardar.'),
+    onError:    (e)  => setErr(e.message || 'Error al guardar en la base de datos.') // Esto evita el Error #31
   });
+
+  // 3. ELIMINAR USUARIO EN SUPABASE
   const del = useMutation({
-    mutationFn: id => api.delete(`/users/${id}`),
-    onSuccess:  () => qc.invalidateQueries(['users']),
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
+    onSuccess:  () => { qc.invalidateQueries(['users']); setDelTgt(null); },
+    onError:    (e) => alert(e.message || 'Error al eliminar el usuario')
   });
 
   const shown = users.filter(u => {
     const q = search.toLowerCase();
-    if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false;
+    if (q && !u.name?.toLowerCase().includes(q) && !u.email?.toLowerCase().includes(q)) return false;
     if (fRole && u.role !== fRole) return false;
     return true;
   });
@@ -102,97 +143,4 @@ export default function Users() {
             {shown.map(u => (
               <tr key={u.id} className="tr-hover">
                 <td className="td">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar name={u.name} size="sm"/>
-                    <div>
-                      <div className="font-semibold text-slate-200 text-sm">{u.name}</div>
-                      {u.id === me?.id && <div className="text-[10px] text-brand-400 font-bold">Tú</div>}
-                    </div>
-                  </div>
-                </td>
-                <td className="td text-slate-400 text-xs">{u.email}</td>
-                <td className="td">
-                  <span className={`text-[11px] font-bold border px-2 py-0.5 rounded-full ${ROLE_BADGE[u.role]||ROLE_BADGE.Worker}`}>
-                    {u.role}
-                  </span>
-                </td>
-                <td className="td text-slate-400 text-xs">{u.position || '—'}</td>
-                <td className="td text-slate-400 text-xs">{u.specialty || '—'}</td>
-                <td className="td text-slate-400 text-xs">{u.phone || '—'}</td>
-                <td className="td text-slate-500 text-xs font-mono">
-                  {u.created_at ? format(new Date(u.created_at),'dd/MM/yyyy') : '—'}
-                </td>
-                <td className="td">
-                  <div className="flex gap-1">
-                    <button className="btn-icon"
-                      onClick={() => { setForm({...u, password:''}); setErr(''); setModal(true); }}>
-                      <Pencil size={12}/>
-                    </button>
-                    <button className="btn-icon hover:text-red-400"
-                      disabled={u.id === me?.id}
-                      title={u.id === me?.id ? 'No puedes eliminarte a ti mismo' : ''}
-                      onClick={() => u.id !== me?.id && setDelTgt(u)}>
-                      <Trash2 size={12}/>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {shown.length === 0 && (
-              <tr><td colSpan={8} className="td text-center text-slate-500 py-10">Sin resultados</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Form modal */}
-      <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Usuario' : 'Nuevo Usuario'}>
-        <form onSubmit={e => { e.preventDefault(); save.mutate(form); }} className="grid grid-cols-2 gap-4">
-          {err && (
-            <div className="col-span-2 text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2 border border-red-500/20">
-              {err}
-            </div>
-          )}
-          <div className="col-span-2">
-            <Field label="Nombre Completo" required>
-              <input className="input" value={form.name} onChange={e => setForm({...form,name:e.target.value})} required/>
-            </Field>
-          </div>
-          <Field label="Correo Electrónico" required>
-            <input type="email" className="input" value={form.email} onChange={e => setForm({...form,email:e.target.value})} required/>
-          </Field>
-          <Field label={form.id ? 'Nueva Contraseña (opcional)' : 'Contraseña'} required={!form.id}>
-            <input type="password" className="input" value={form.password}
-              onChange={e => setForm({...form,password:e.target.value})}
-              required={!form.id} minLength={6}
-              placeholder={form.id ? 'Dejar vacío para no cambiar' : 'Mínimo 6 caracteres'}/>
-          </Field>
-          <Field label="Rol">
-            <select className="input" value={form.role} onChange={e => setForm({...form,role:e.target.value})}>
-              {ROLES.map(r => <option key={r}>{r}</option>)}
-            </select>
-          </Field>
-          <Field label="Cargo / Posición">
-            <input className="input" value={form.position||''} onChange={e => setForm({...form,position:e.target.value})} placeholder="Ingeniero Civil…"/>
-          </Field>
-          <Field label="Especialidad">
-            <input className="input" value={form.specialty||''} onChange={e => setForm({...form,specialty:e.target.value})} placeholder="Estructuras, Electricidad…"/>
-          </Field>
-          <Field label="Teléfono">
-            <input className="input" value={form.phone||''} onChange={e => setForm({...form,phone:e.target.value})} placeholder="+506 8888-0000"/>
-          </Field>
-          <div className="col-span-2 flex justify-end gap-2 pt-1">
-            <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
-            <button type="submit" className="btn-primary" disabled={save.isPending}>
-              {save.isPending ? 'Guardando…' : form.id ? 'Actualizar Usuario' : 'Crear Usuario'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
-        title="Eliminar Usuario"
-        message={`¿Eliminar al usuario "${delTgt?.name}"? Esta acción no se puede deshacer.`}/>
-    </div>
-  );
-}
+                  <div className="flex items
