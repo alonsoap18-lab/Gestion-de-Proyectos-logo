@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { Progress, Badge, Spinner } from '../components/ui';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import {
@@ -13,19 +13,16 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const TIP = (p) => (
-  <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
-);
-
-// ICAA blue palette for charts
-const CHART_BLUE   = '#2d4fa0';
-const CHART_BLUE_L = '#4a7fd4';
-const TASK_COLORS  = {
-  Pending:       '#64748b',
-  Started:       '#4a7fd4',
+const TASK_COLORS = {
+  Pending: '#64748b',
+  Started: '#4a7fd4',
   'In Progress': '#f97316',
-  Completed:     '#22c55e',
+  Completed: '#22c55e',
 };
+
+function Tooltip(props) {
+  return <ReTooltip {...props} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>;
+}
 
 function StatCard({ icon: Icon, label, value, color, sub }) {
   const styles = {
@@ -44,7 +41,7 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
         <Icon size={19} style={{ color: s.text }}/>
       </div>
       <div>
-        <div className="text-2xl font-display font-bold text-white leading-none">{value}</div>
+        <div className="text-2xl font-display font-bold text-white leading-none">{value ?? 0}</div>
         <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5">{label}</div>
         {sub && <div className="text-[11px] text-slate-500 mt-0.5">{sub}</div>}
       </div>
@@ -54,14 +51,31 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { data: stats, isLoading } = useQuery({
+
+  const { data: stats, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
-    queryFn:  () => api.get('/dashboard').then(r => r.data),
+    queryFn: () => api.get('/dashboard').then(r => r.data),
+    staleTime: 1000 * 60, // 1 minuto
   });
 
   if (isLoading) return <Spinner/>;
 
-  const { projects, tasks, people, machinery, projectProgress, tasksByProject, recentTasks } = stats;
+  if (isError || !stats) return (
+    <div className="text-white flex flex-col items-center justify-center h-screen">
+      <p className="text-red-400 mb-3">Error al cargar los datos del dashboard.</p>
+      <button onClick={() => window.location.reload()} className="px-4 py-2 bg-blue-600 rounded-lg">Reintentar</button>
+    </div>
+  );
+
+  // Valores por defecto si API no entrega todos los campos
+  const {
+    projects = { total:0, active:0, planning:0, delayed:0, completed:0 },
+    tasks = { total:0, pending:0, inProgress:0, completed:0, started:0 },
+    people = { total:0 },
+    machinery = { Available:0 },
+    projectProgress = [],
+    recentTasks = [],
+  } = stats;
 
   const taskPieData = [
     { name:'Pendientes',  value: tasks.pending,    color: TASK_COLORS.Pending      },
@@ -71,18 +85,18 @@ export default function Dashboard() {
   ].filter(d => d.value > 0);
 
   const barData = projectProgress.map(p => ({
-    name:     p.name.length > 16 ? p.name.slice(0,16)+'…' : p.name,
-    Progreso: p.progress || 0,
+    name: p.name.length > 16 ? p.name.slice(0,16)+'…' : p.name,
+    Progreso: p.progress ?? 0,
   }));
 
   const avgProgress = projects.total > 0
-    ? Math.round(projectProgress.reduce((s,p) => s+(p.progress||0), 0) / projects.total)
+    ? Math.round(projectProgress.reduce((s,p) => s+(p.progress??0), 0) / projects.total)
     : 0;
 
   return (
     <div className="space-y-6">
 
-      {/* Header with logo */}
+      {/* Header */}
       <div className="flex items-center gap-4">
         <div className="bg-white rounded-xl p-2 w-12 h-12 flex items-center justify-center flex-shrink-0 shadow-lg">
           <img src="/icaa-logo.png" alt="ICAA" className="w-full h-full object-contain"/>
@@ -90,31 +104,29 @@ export default function Dashboard() {
         <div>
           <h1 className="page-title">Dashboard</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            Bienvenido, <span className="text-white font-semibold">{user?.name}</span> — Grupo ICAA Constructora
+            Bienvenido, <span className="text-white font-semibold">{user?.name ?? user?.email}</span> — Grupo ICAA Constructora
           </p>
         </div>
       </div>
 
-      {/* Project KPIs */}
+      {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard icon={FolderKanban} label="Total Proyectos"     value={projects.total}     color="blue"/>
-        <StatCard icon={TrendingUp}   label="Activos"             value={projects.active}    color="green"/>
-        <StatCard icon={Clock}        label="Planificación"       value={projects.planning}  color="gray"/>
-        <StatCard icon={AlertTriangle}label="Retrasados"          value={projects.delayed}   color="red"/>
-        <StatCard icon={CheckSquare}  label="Completados"         value={projects.completed} color="gray"/>
+        <StatCard icon={FolderKanban} label="Total Proyectos" value={projects.total} color="blue"/>
+        <StatCard icon={TrendingUp}   label="Activos" value={projects.active} color="green"/>
+        <StatCard icon={Clock}        label="Planificación" value={projects.planning} color="gray"/>
+        <StatCard icon={AlertTriangle}label="Retrasados" value={projects.delayed} color="red"/>
+        <StatCard icon={CheckSquare}  label="Completados" value={projects.completed} color="gray"/>
       </div>
 
-      {/* Task KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={CheckSquare} label="Total Tareas"  value={tasks.total}      color="blue"/>
-        <StatCard icon={Clock}       label="Pendientes"    value={tasks.pending}    color="yellow"/>
-        <StatCard icon={TrendingUp}  label="En Progreso"   value={tasks.inProgress} color="orange"/>
-        <StatCard icon={CheckSquare} label="Completadas"   value={tasks.completed}  color="green"/>
+        <StatCard icon={CheckSquare} label="Total Tareas" value={tasks.total} color="blue"/>
+        <StatCard icon={Clock}       label="Pendientes" value={tasks.pending} color="yellow"/>
+        <StatCard icon={TrendingUp}  label="En Progreso" value={tasks.inProgress} color="orange"/>
+        <StatCard icon={CheckSquare} label="Completadas" value={tasks.completed} color="green"/>
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Bar chart */}
         <div className="card p-5 lg:col-span-2">
           <h3 className="section-title text-sm mb-4">Progreso por Proyecto</h3>
           {barData.length > 0 ? (
@@ -122,9 +134,8 @@ export default function Dashboard() {
               <BarChart data={barData} margin={{ bottom:50, left:-20, right:10 }}>
                 <XAxis dataKey="name" tick={{ fill:'#64748b', fontSize:10 }} angle={-35} textAnchor="end" interval={0}/>
                 <YAxis tick={{ fill:'#64748b', fontSize:11 }} domain={[0,100]}/>
-                <TIP formatter={v => [`${v}%`, 'Progreso']}/>
-                <Bar dataKey="Progreso" radius={[4,4,0,0]}
-                  fill="url(#blueGrad)"/>
+                <Tooltip/>
+                <Bar dataKey="Progreso" radius={[4,4,0,0]} fill="url(#blueGrad)"/>
                 <defs>
                   <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#4a7fd4"/>
@@ -138,16 +149,15 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Pie chart */}
         <div className="card p-5">
           <h3 className="section-title text-sm mb-4">Tareas por Estado</h3>
           {taskPieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={taskPieData} cx="50%" cy="45%" innerRadius={52} outerRadius={80} paddingAngle={3} dataKey="value">
-                  {taskPieData.map((d, i) => <Cell key={i} fill={d.color}/>)}
+                  {taskPieData.map((d,i) => <Cell key={i} fill={d.color}/>)}
                 </Pie>
-                <TIP/>
+                <Tooltip/>
                 <Legend wrapperStyle={{ fontSize:11, color:'#94a3b8', paddingTop:8 }}/>
               </PieChart>
             </ResponsiveContainer>
@@ -159,12 +169,10 @@ export default function Dashboard() {
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Project list */}
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="section-title text-sm">Estado de Proyectos</h3>
-            <Link to="/projects" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity"
-              style={{ color: '#4a7fd4' }}>
+            <Link to="/projects" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color:'#4a7fd4' }}>
               Ver todos <ChevronRight size={12}/>
             </Link>
           </div>
@@ -182,12 +190,10 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Recent tasks */}
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="section-title text-sm">Actividad Reciente</h3>
-            <Link to="/tasks" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity"
-              style={{ color: '#4a7fd4' }}>
+            <Link to="/tasks" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color:'#4a7fd4' }}>
               Ver todas <ChevronRight size={12}/>
             </Link>
           </div>
@@ -223,12 +229,13 @@ export default function Dashboard() {
         </div>
         <div className="card p-4 text-center"
           style={{ background: 'linear-gradient(135deg, rgba(45,79,160,0.12) 0%, rgba(45,79,160,0.04) 100%)' }}>
-          <div className="text-3xl font-display font-black" style={{ color: '#4a7fd4' }}>{avgProgress}%</div>
+          <div className="text-3xl font-display font-black" style={{ color:'#4a7fd4' }}>{avgProgress}%</div>
           <div className="text-[11px] text-slate-400 uppercase tracking-wider mt-0.5 flex items-center justify-center gap-1">
             <TrendingUp size={11}/> Avance General
           </div>
         </div>
       </div>
+
     </div>
   );
 }
