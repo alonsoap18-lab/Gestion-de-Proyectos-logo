@@ -16,14 +16,14 @@ import Users from './pages/Users';
 
 function Private({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="text-white">Cargando...</div>;
+  if (loading) return <div className="text-white flex justify-center items-center h-screen">Cargando...</div>;
   return user ? children : <Navigate to="/login" replace />;
 }
 
 function AdminOnly({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="text-white">Cargando...</div>;
-  if (!user || !user.role) return <Navigate to="/login" replace />;
+  if (loading) return <div className="text-white flex justify-center items-center h-screen">Cargando...</div>;
+  if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'Admin') return <Navigate to="/" replace />;
   return children;
 }
@@ -33,7 +33,7 @@ const A = ({ el }) => <AdminOnly><Layout>{el}</Layout></AdminOnly>;
 
 export default function App() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="text-white">Cargando...</div>;
+  if (loading) return <div className="text-white flex justify-center items-center h-screen">Cargando...</div>;
 
   return (
     <Routes>
