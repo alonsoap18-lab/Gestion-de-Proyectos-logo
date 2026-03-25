@@ -178,8 +178,21 @@ export default function ProjectDetail() {
           <div className="col-span-2"><Field label="Nombre" required><input className="input" value={taskForm.name} onChange={e => setTaskForm({...taskForm, name: e.target.value})} required/></Field></div>
           <Field label="Semana Inicio"><input type="number" className="input" value={taskForm.start_week} min={1} max={totalWeeks} onChange={e => setTaskForm({...taskForm, start_week: parseInt(e.target.value)||1})}/></Field>
           <Field label="Semana Fin"><input type="number" className="input" value={taskForm.end_week} min={1} max={totalWeeks} onChange={e => setTaskForm({...taskForm, end_week: parseInt(e.target.value)||2})}/></Field>
-          <Field label="Estado"><select className="input" value={taskForm.status} onChange={e => setTaskForm({...taskForm, status: e.target.value})}><option>Pending</option><option>Started</option><option>In Progress</option><option>Completed</option></select></Field>
-          <Field label="Prioridad"><select className="input" value={taskForm.priority} onChange={e => setTaskForm({...taskForm, priority: e.target.value})}><option>Low</option><option>Medium</option><option>High</option></select></Field>
+          <Field label="Estado">
+            <select className="input" value={taskForm.status} onChange={e => setTaskForm({...taskForm, status: e.target.value})}>
+              <option value="Pending">Pendiente</option>
+              <option value="Started">Iniciada</option>
+              <option value="In Progress">En Progreso</option>
+              <option value="Completed">Completada</option>
+            </select>
+          </Field>
+          <Field label="Prioridad">
+            <select className="input" value={taskForm.priority} onChange={e => setTaskForm({...taskForm, priority: e.target.value})}>
+              <option value="Low">Baja</option>
+              <option value="Medium">Media</option>
+              <option value="High">Alta</option>
+            </select>
+          </Field>
           <Field label="Progreso (%)"><input type="number" className="input" value={taskForm.progress} min={0} max={100} onChange={e => setTaskForm({...taskForm, progress: parseInt(e.target.value)||0})}/></Field>
           <Field label="Asignado a"><select className="input" value={taskForm.assigned_to||''} onChange={e => setTaskForm({...taskForm, assigned_to: e.target.value})}><option value="">— Sin asignar —</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
           <div className="col-span-2 flex justify-end gap-2 pt-1"><button type="button" className="btn-ghost" onClick={() => setTaskMod(false)}>Cancelar</button><button type="submit" className="btn-primary" disabled={saveTask.isPending}>Guardar</button></div>
