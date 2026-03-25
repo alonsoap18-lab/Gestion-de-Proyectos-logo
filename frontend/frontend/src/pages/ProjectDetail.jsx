@@ -7,6 +7,8 @@ import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../comp
 import GanttChart from '../components/gantt/GanttChart';
 import { ArrowLeft, Plus, Pencil, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
+// 🔥 1. Importamos la memoria del usuario
+import { useAuth } from '../context/AuthContext'; 
 
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 const TABS = ['Gantt','Tareas','Equipo','Información'];
@@ -15,6 +17,12 @@ export default function ProjectDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
   const qc       = useQueryClient();
+  
+  // 🔥 2. Sacamos al usuario actual de la memoria
+  const { user } = useAuth();
+  // 🔥 3. Creamos la llave maestra: ¿Tiene permiso de gerencia?
+  const isManager = ['Admin', 'Engineer', 'Supervisor'].includes(user?.role);
+
   const [tab,      setTab]      = useState('Gantt');
   const [taskMod,  setTaskMod]  = useState(false);
   const [taskForm, setTaskForm] = useState(BLANK_TASK);
@@ -29,7 +37,6 @@ export default function ProjectDetail() {
       let p = { ...data };
       if (p.tasks) {
         p.tasks = p.tasks.map(t => ({ ...t, assigned_name: t.users?.name || '' })).sort((a,b) => a.start_week - b.start_week);
-        // 🔥 MAGIA AQUÍ: Calculamos el progreso en el detalle
         p.progress = p.tasks.length > 0 ? Math.round(p.tasks.reduce((s,t) => s + (t.progress||0), 0) / p.tasks.length) : 0;
       } else { p.progress = 0; }
       if (p.project_members) {
@@ -93,7 +100,7 @@ export default function ProjectDetail() {
             {project.location && <span className="flex items-center gap-1"><MapPin size={10}/>{project.location}</span>}
             {project.start_date && <span className="flex items-center gap-1"><Calendar size={10}/>{format(new Date(project.start_date),'dd/MM/yyyy')}</span>}
             <span className="flex items-center gap-1"><Clock size={10}/>{totalWeeks} semanas</span>
-            {project.budget > 0 && <span className="flex items-center gap-1"><DollarSign size={10}/>Presupuesto: ${Number(project.budget).toLocaleString()}</span>}
+            {project.budget > 0 && <span className="flex items-center gap-1"><DollarSign size={10}/>Presupuesto: ${Number(project.budget).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>}
           </div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -110,9 +117,10 @@ export default function ProjectDetail() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="section-title text-sm">Diagrama Gantt · {totalWeeks} semanas</h3>
-            <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
+            {/* 🔥 CANDADO: Solo los gerentes ven el botón de Nueva Tarea */}
+            {isManager && <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>}
           </div>
-          <GanttChart project={project} tasks={project.tasks || []} onEditTask={openEditTask} onDeleteTask={t => setDelTask(t)} onMoveTask={(tid, sw, ew) => moveTask.mutate({ tid, sw, ew })}/>
+          <GanttChart project={project} tasks={project.tasks || []} onEditTask={isManager ? openEditTask : undefined} onDeleteTask={isManager ? t => setDelTask(t) : undefined} onMoveTask={isManager ? (tid, sw, ew) => moveTask.mutate({ tid, sw, ew }) : undefined}/>
         </div>
       )}
 
@@ -120,10 +128,11 @@ export default function ProjectDetail() {
         <div className="table-wrap">
           <div className="flex items-center justify-between px-5 py-4 border-b border-surface-600 bg-surface-700">
             <h3 className="section-title text-sm">Tareas</h3>
-            <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
+            {/* 🔥 CANDADO: Solo gerentes */}
+            {isManager && <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>}
           </div>
           <table className="w-full">
-            <thead><tr><th className="th">Tarea</th><th className="th">Asignado</th><th className="th">Semanas</th><th className="th">Estado</th><th className="th w-36">Progreso</th><th className="th">Prioridad</th><th className="th w-20"/></tr></thead>
+            <thead><tr><th className="th">Tarea</th><th className="th">Asignado</th><th className="th">Semanas</th><th className="th">Estado</th><th className="th w-36">Progreso</th><th className="th">Prioridad</th>{isManager && <th className="th w-20"/>}</tr></thead>
             <tbody>
               {(project.tasks || []).map(t => (
                 <tr key={t.id} className="tr-hover">
@@ -133,15 +142,18 @@ export default function ProjectDetail() {
                   <td className="td"><Badge status={t.status}/></td>
                   <td className="td"><Progress value={t.progress} size="sm"/></td>
                   <td className="td"><span className={`text-xs font-semibold ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>{t.priority}</span></td>
-                  <td className="td">
-                    <div className="flex gap-1">
-                      <button className="btn-icon" onClick={() => openEditTask(t)}><Pencil size={12} /></button>
-                      <button className="btn-icon hover:text-red-400" onClick={() => setDelTask(t)}><Trash2 size={12}/></button>
-                    </div>
-                  </td>
+                  {/* 🔥 CANDADO: Solo gerentes ven el lápiz y el basurero */}
+                  {isManager && (
+                    <td className="td">
+                      <div className="flex gap-1">
+                        <button className="btn-icon" onClick={() => openEditTask(t)}><Pencil size={12} /></button>
+                        <button className="btn-icon hover:text-red-400" onClick={() => setDelTask(t)}><Trash2 size={12}/></button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
-              {!project.tasks?.length && <tr><td colSpan={7} className="td text-center text-slate-500 py-10">Sin tareas</td></tr>}
+              {!project.tasks?.length && <tr><td colSpan={isManager ? 7 : 6} className="td text-center text-slate-500 py-10">Sin tareas</td></tr>}
             </tbody>
           </table>
         </div>
@@ -149,13 +161,18 @@ export default function ProjectDetail() {
 
       {tab === 'Equipo' && (
         <div className="card p-5">
-          <div className="flex items-center justify-between mb-4"><h3 className="section-title text-sm">Equipo</h3><button className="btn-primary" onClick={() => setMbMod(true)}><Plus size={14}/>Agregar</button></div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="section-title text-sm">Equipo</h3>
+            {/* 🔥 CANDADO: Solo gerentes pueden agregar personas */}
+            {isManager && <button className="btn-primary" onClick={() => setMbMod(true)}><Plus size={14}/>Agregar</button>}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {(project.members || []).map(m => (
               <div key={m.id} className="flex items-center gap-3 p-3 bg-surface-700 rounded-xl border border-surface-600">
                 <Avatar name={m.name}/><div className="flex-1 min-w-0"><div className="font-semibold text-slate-200 text-sm">{m.name}</div><div className="text-xs text-slate-500">{m.specialty || m.role}</div></div>
                 <span className="text-xs bg-surface-600 text-slate-400 px-2 py-1 rounded-lg flex-shrink-0">{m.project_role}</span>
-                <button className="btn-icon hover:text-red-400 flex-shrink-0" onClick={() => removeMember.mutate(m.id)}><Trash2 size={12}/></button>
+                {/* 🔥 CANDADO: Solo gerentes pueden eliminar personas */}
+                {isManager && <button className="btn-icon hover:text-red-400 flex-shrink-0" onClick={() => removeMember.mutate(m.id)}><Trash2 size={12}/></button>}
               </div>
             ))}
           </div>
@@ -166,44 +183,36 @@ export default function ProjectDetail() {
         <div className="card p-6">
           <h3 className="section-title text-sm mb-4">Información del Proyecto</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-            {[ ['Cliente', project.client], ['Ubicación', project.location], ['Inicio', project.start_date ? format(new Date(project.start_date),'dd/MM/yyyy') : null], ['Duración', `${project.duration_weeks} semanas`], ['Estado', project.status], ['Presupuesto', project.budget ? `$${Number(project.budget).toLocaleString()}` : null], ['Progreso', `${project.progress}%`], ['Tareas', project.tasks?.length ?? 0], ['Miembros', project.members?.length ?? 0] ].map(([l, v]) => (
+            {[ ['Cliente', project.client], ['Ubicación', project.location], ['Inicio', project.start_date ? format(new Date(project.start_date),'dd/MM/yyyy') : null], ['Duración', `${project.duration_weeks} semanas`], ['Estado', project.status], ['Presupuesto', project.budget ? `$${Number(project.budget).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}` : null], ['Progreso', `${project.progress}%`], ['Tareas', project.tasks?.length ?? 0], ['Miembros', project.members?.length ?? 0] ].map(([l, v]) => (
               <div key={l} className="bg-surface-700 rounded-lg p-3 border border-surface-600"><div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">{l}</div><div className="text-slate-200 font-semibold">{v || '—'}</div></div>
             ))}
           </div>
         </div>
       )}
 
-      <Modal open={taskMod} onClose={() => setTaskMod(false)} title={taskForm.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
-        <form onSubmit={e => { e.preventDefault(); saveTask.mutate({ ...taskForm, project_id: id }); }} className="grid grid-cols-2 gap-4">
-          <div className="col-span-2"><Field label="Nombre" required><input className="input" value={taskForm.name} onChange={e => setTaskForm({...taskForm, name: e.target.value})} required/></Field></div>
-          <Field label="Semana Inicio"><input type="number" className="input" value={taskForm.start_week} min={1} max={totalWeeks} onChange={e => setTaskForm({...taskForm, start_week: parseInt(e.target.value)||1})}/></Field>
-          <Field label="Semana Fin"><input type="number" className="input" value={taskForm.end_week} min={1} max={totalWeeks} onChange={e => setTaskForm({...taskForm, end_week: parseInt(e.target.value)||2})}/></Field>
-          <Field label="Estado">
-            <select className="input" value={taskForm.status} onChange={e => setTaskForm({...taskForm, status: e.target.value})}>
-              <option value="Pending">Pendiente</option>
-              <option value="Started">Iniciada</option>
-              <option value="In Progress">En Progreso</option>
-              <option value="Completed">Completada</option>
-            </select>
-          </Field>
-          <Field label="Prioridad">
-            <select className="input" value={taskForm.priority} onChange={e => setTaskForm({...taskForm, priority: e.target.value})}>
-              <option value="Low">Baja</option>
-              <option value="Medium">Media</option>
-              <option value="High">Alta</option>
-            </select>
-          </Field>
-          <Field label="Progreso (%)"><input type="number" className="input" value={taskForm.progress} min={0} max={100} onChange={e => setTaskForm({...taskForm, progress: parseInt(e.target.value)||0})}/></Field>
-          <Field label="Asignado a"><select className="input" value={taskForm.assigned_to||''} onChange={e => setTaskForm({...taskForm, assigned_to: e.target.value})}><option value="">— Sin asignar —</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
-          <div className="col-span-2 flex justify-end gap-2 pt-1"><button type="button" className="btn-ghost" onClick={() => setTaskMod(false)}>Cancelar</button><button type="submit" className="btn-primary" disabled={saveTask.isPending}>Guardar</button></div>
-        </form>
-      </Modal>
+      {/* MODALES RESTRINGIDOS */}
+      {isManager && (
+        <>
+          <Modal open={taskMod} onClose={() => setTaskMod(false)} title={taskForm.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
+            <form onSubmit={e => { e.preventDefault(); saveTask.mutate({ ...taskForm, project_id: id }); }} className="grid grid-cols-2 gap-4">
+              <div className="col-span-2"><Field label="Nombre" required><input className="input" value={taskForm.name} onChange={e => setTaskForm({...taskForm, name: e.target.value})} required/></Field></div>
+              <Field label="Semana Inicio"><input type="number" className="input" value={taskForm.start_week} min={1} max={totalWeeks} onChange={e => setTaskForm({...taskForm, start_week: parseInt(e.target.value)||1})}/></Field>
+              <Field label="Semana Fin"><input type="number" className="input" value={taskForm.end_week} min={1} max={totalWeeks} onChange={e => setTaskForm({...taskForm, end_week: parseInt(e.target.value)||2})}/></Field>
+              <Field label="Estado"><select className="input" value={taskForm.status} onChange={e => setTaskForm({...taskForm, status: e.target.value})}><option value="Pending">Pendiente</option><option value="Started">Iniciada</option><option value="In Progress">En Progreso</option><option value="Completed">Completada</option></select></Field>
+              <Field label="Prioridad"><select className="input" value={taskForm.priority} onChange={e => setTaskForm({...taskForm, priority: e.target.value})}><option value="Low">Baja</option><option value="Medium">Media</option><option value="High">Alta</option></select></Field>
+              <Field label="Progreso (%)"><input type="number" className="input" value={taskForm.progress} min={0} max={100} onChange={e => setTaskForm({...taskForm, progress: parseInt(e.target.value)||0})}/></Field>
+              <Field label="Asignado a"><select className="input" value={taskForm.assigned_to||''} onChange={e => setTaskForm({...taskForm, assigned_to: e.target.value})}><option value="">— Sin asignar —</option>{allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
+              <div className="col-span-2 flex justify-end gap-2 pt-1"><button type="button" className="btn-ghost" onClick={() => setTaskMod(false)}>Cancelar</button><button type="submit" className="btn-primary" disabled={saveTask.isPending}>Guardar</button></div>
+            </form>
+          </Modal>
 
-      <Modal open={mbMod} onClose={() => setMbMod(false)} title="Agregar Miembro" size="sm">
-        <AddMemberForm allUsers={allUsers} existing={project.members || []} onAdd={d => addMember.mutate(d)} onClose={() => setMbMod(false)}/>
-      </Modal>
+          <Modal open={mbMod} onClose={() => setMbMod(false)} title="Agregar Miembro" size="sm">
+            <AddMemberForm allUsers={allUsers} existing={project.members || []} onAdd={d => addMember.mutate(d)} onClose={() => setMbMod(false)}/>
+          </Modal>
 
-      <Confirm open={!!delTask} onClose={() => setDelTask(null)} onConfirm={() => delTaskMut.mutate(delTask.id)} title="Eliminar Tarea" message={`¿Eliminar la tarea "${delTask?.name}"?`}/>
+          <Confirm open={!!delTask} onClose={() => setDelTask(null)} onConfirm={() => delTaskMut.mutate(delTask.id)} title="Eliminar Tarea" message={`¿Eliminar la tarea "${delTask?.name}"?`}/>
+        </>
+      )}
     </div>
   );
 }
@@ -214,7 +223,7 @@ function AddMemberForm({ allUsers, existing, onAdd, onClose }) {
   return (
     <div className="space-y-4">
       <Field label="Usuario"><select className="input" value={userId} onChange={e => setUserId(e.target.value)}><option value="">— Seleccionar —</option>{available.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></Field>
-      <Field label="Rol"><select className="input" value={role} onChange={e => setRole(e.target.value)}><option>Engineer</option><option>Supervisor</option><option>Member</option><option>Observer</option></select></Field>
+      <Field label="Rol"><select className="input" value={role} onChange={e => setRole(e.target.value)}><option value="Engineer">Ingeniero</option><option value="Supervisor">Supervisor</option><option value="Member">Miembro</option><option value="Observer">Observador</option></select></Field>
       <div className="flex justify-end gap-2"><button className="btn-ghost" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!userId} onClick={() => { onAdd({ user_id: userId, project_role: role }); }}>Agregar</button></div>
     </div>
   );
