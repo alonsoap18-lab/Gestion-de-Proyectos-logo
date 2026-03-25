@@ -5,7 +5,9 @@ import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Spinner, Badge } from '../components/ui';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend } from 'recharts';
-import { BarChart3, CheckSquare, Users, FileSpreadsheet, Printer } from 'lucide-react';
+import { BarChart3, CheckSquare, Users, FileSpreadsheet, FileText } from 'lucide-react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
@@ -17,6 +19,7 @@ const TABS = [
   { id:'employees', label:'Empleados',  icon: Users       },
 ];
 
+// Función para Exportar a CSV (Excel)
 function exportCSV(filename, rows, cols) {
   const header = cols.map(c => `"${c.label}"`).join(',');
   const body   = rows.map(r => cols.map(c => {
@@ -27,6 +30,40 @@ function exportCSV(filename, rows, cols) {
   const blob   = new Blob([header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
+}
+
+// Función profesional para Exportar a PDF
+function exportToPDF(filename, title, rows, cols) {
+  const doc = new jsPDF();
+  
+  // Título
+  doc.setFontSize(18);
+  doc.setTextColor(40, 40, 40);
+  doc.text(title, 14, 22);
+  
+  // Fecha de generación
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 14, 30);
+
+  const tableColumn = cols.map(c => c.label);
+  const tableRows = rows.map(r => cols.map(c => {
+    let val = r[c.key];
+    if (val === null || val === undefined) val = '—';
+    return val;
+  }));
+
+  doc.autoTable({
+    head: [tableColumn],
+    body: tableRows,
+    startY: 36,
+    theme: 'grid',
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255] }, // Azul oscuro ICAA
+    alternateRowStyles: { fillColor: [245, 247, 250] }
+  });
+
+  doc.save(filename);
 }
 
 export default function Reports() {
@@ -72,51 +109,63 @@ export default function Reports() {
   const taskDoneRate = tasks.length ? Math.round((tasks.filter(t=>t.status==='Completed').length / tasks.length)*100) : 0;
   const avgProgress  = projects.length ? Math.round(projects.reduce((s,p) => s+(Number(p.progress)||0),0)/projects.length) : 0;
 
-  // Funciones de Exportación
-  const handleExportProjects = () => {
-    exportCSV('reporte_proyectos.csv', projects, [
-      { label: 'Nombre', key: 'name' },
-      { label: 'Cliente', key: 'client' },
-      { label: 'Ubicación', key: 'location' },
-      { label: 'Estado', key: 'status' },
-      { label: 'Progreso (%)', key: 'progress' },
-      { label: 'Presupuesto', key: 'budget' }
-    ]);
+  // --- LÓGICA DE EXPORTACIÓN ---
+  
+  const handleExportCSV = () => {
+    if (tab === 'projects') {
+      exportCSV('reporte_proyectos.csv', projects, [
+        { label: 'Nombre', key: 'name' }, { label: 'Cliente', key: 'client' }, { label: 'Ubicación', key: 'location' },
+        { label: 'Estado', key: 'status' }, { label: 'Progreso (%)', key: 'progress' }, { label: 'Presupuesto', key: 'budget' }
+      ]);
+    } else if (tab === 'tasks') {
+      exportCSV('reporte_tareas.csv', tasks, [
+        { label: 'Tarea', key: 'name' }, { label: 'Proyecto', key: 'project_name' }, { label: 'Asignado a', key: 'assigned_name' },
+        { label: 'Estado', key: 'status' }, { label: 'Progreso (%)', key: 'progress' }, { label: 'Prioridad', key: 'priority' }
+      ]);
+    } else if (tab === 'employees') {
+      exportCSV('reporte_empleados.csv', users, [
+        { label: 'Nombre', key: 'name' }, { label: 'Correo', key: 'email' }, { label: 'Rol', key: 'role' },
+        { label: 'Cargo', key: 'position' }, { label: 'Especialidad', key: 'specialty' }, { label: 'Teléfono', key: 'phone' }
+      ]);
+    }
   };
 
-  const handleExportTasks = () => {
-    exportCSV('reporte_tareas.csv', tasks, [
-      { label: 'Tarea', key: 'name' },
-      { label: 'Proyecto', key: 'project_name' },
-      { label: 'Asignado a', key: 'assigned_name' },
-      { label: 'Estado', key: 'status' },
-      { label: 'Progreso (%)', key: 'progress' },
-      { label: 'Prioridad', key: 'priority' }
-    ]);
-  };
-
-  const handleExportEmployees = () => {
-    exportCSV('reporte_empleados.csv', users, [
-      { label: 'Nombre', key: 'name' },
-      { label: 'Correo', key: 'email' },
-      { label: 'Rol', key: 'role' },
-      { label: 'Cargo', key: 'position' },
-      { label: 'Especialidad', key: 'specialty' },
-      { label: 'Teléfono', key: 'phone' }
-    ]);
+  const handleExportPDF = () => {
+    if (tab === 'projects') {
+      // Damos formato visual a los datos antes de imprimir el PDF
+      const formatted = projects.map(p => ({
+        ...p, progress: `${p.progress || 0}%`, budget: `$${Number(p.budget || 0).toLocaleString()}`
+      }));
+      exportToPDF('Reporte_Proyectos.pdf', 'Reporte General de Proyectos', formatted, [
+        { label: 'Proyecto', key: 'name' }, { label: 'Cliente', key: 'client' }, { label: 'Ubicación', key: 'location' },
+        { label: 'Estado', key: 'status' }, { label: 'Avance', key: 'progress' }, { label: 'Presupuesto', key: 'budget' }
+      ]);
+    } else if (tab === 'tasks') {
+      const formatted = tasks.map(t => ({ ...t, progress: `${t.progress || 0}%`, start_week: `S${t.start_week}-S${t.end_week}` }));
+      exportToPDF('Reporte_Tareas.pdf', 'Reporte de Tareas', formatted, [
+        { label: 'Tarea', key: 'name' }, { label: 'Proyecto', key: 'project_name' }, { label: 'Asignado', key: 'assigned_name' },
+        { label: 'Semanas', key: 'start_week' }, { label: 'Estado', key: 'status' }, { label: 'Progreso', key: 'progress' }
+      ]);
+    } else if (tab === 'employees') {
+      exportToPDF('Reporte_Empleados.pdf', 'Reporte de Personal', users, [
+        { label: 'Nombre', key: 'name' }, { label: 'Correo', key: 'email' }, { label: 'Rol', key: 'role' },
+        { label: 'Cargo', key: 'position' }, { label: 'Teléfono', key: 'phone' }
+      ]);
+    }
   };
 
   return (
     <div>
       <div className="page-header flex justify-between items-center">
         <h1 className="page-title">Reportes</h1>
-        <button className="btn-primary flex items-center gap-2" onClick={() => {
-          if (tab === 'projects') handleExportProjects();
-          if (tab === 'tasks') handleExportTasks();
-          if (tab === 'employees') handleExportEmployees();
-        }}>
-          <FileSpreadsheet size={15}/> Exportar a CSV
-        </button>
+        <div className="flex gap-2">
+          <button className="btn-primary bg-red-600 hover:bg-red-500 border-red-500 flex items-center gap-2" onClick={handleExportPDF}>
+            <FileText size={15}/> Generar PDF
+          </button>
+          <button className="btn-primary flex items-center gap-2" onClick={handleExportCSV}>
+            <FileSpreadsheet size={15}/> Exportar CSV
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}
