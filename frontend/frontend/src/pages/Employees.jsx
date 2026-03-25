@@ -157,7 +157,10 @@ export default function Employees() {
           </Field>
           <Field label="Rol">
             <select className="input" value={form.role || 'Worker'} onChange={e => setForm({...form,role:e.target.value})}>
-              {ROLES.map(r => <option key={r}>{r}</option>)}
+              <option value="Admin">Administrador</option>
+              <option value="Engineer">Ingeniero</option>
+              <option value="Supervisor">Supervisor</option>
+              <option value="Worker">Trabajador</option>
             </select>
           </Field>
           <Field label="Cargo / Posición"><input className="input" value={form.position||''} onChange={e => setForm({...form,position:e.target.value})} placeholder="Ingeniero Civil…"/></Field>
