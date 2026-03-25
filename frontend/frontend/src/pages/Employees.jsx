@@ -1,7 +1,7 @@
 // src/pages/Employees.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase'; // ✅ Ruta correcta hacia Supabase
+import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Spinner, Empty, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Users, Mail, Phone, Briefcase, Star, Search } from 'lucide-react';
 
@@ -23,8 +23,9 @@ export default function Employees() {
   const [fRole,   setFRole]   = useState('');
   const [err,     setErr]     = useState('');
 
+  // ✅ CORRECCIÓN: Usamos una caja de memoria única para los empleados detallados
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users'], 
+    queryKey: ['users', 'detailed'], 
     queryFn: async () => {
       const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
       if (error) throw error;
@@ -47,7 +48,11 @@ export default function Employees() {
         return data;
       }
     },
-    onSuccess:  () => { qc.invalidateQueries({queryKey: ['users']}); setModal(false); setErr(''); },
+    onSuccess:  () => { 
+      qc.invalidateQueries({queryKey: ['users']}); 
+      setModal(false); 
+      setErr(''); 
+    },
     onError:    (e) => setErr(e.message || 'Error al guardar el empleado.')
   });
 
@@ -57,7 +62,10 @@ export default function Employees() {
       if (error) throw error;
       return true;
     },
-    onSuccess:  () => { qc.invalidateQueries({queryKey: ['users']}); setDelTgt(null); },
+    onSuccess:  () => { 
+      qc.invalidateQueries({queryKey: ['users']}); 
+      setDelTgt(null); 
+    },
     onError:    (e) => alert(e.message || 'Error al eliminar.')
   });
 
