@@ -8,7 +8,6 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🔥 NUEVA FUNCIÓN: Busca el perfil completo del usuario en la base de datos
   const fetchUserProfile = async (authUser) => {
     if (!authUser) return null;
     try {
@@ -19,11 +18,8 @@ export function AuthProvider({ children }) {
         .single();
         
       if (error) {
-        console.warn("No se encontró el perfil en la tabla users, asignando rol por defecto.");
-        return { ...authUser, role: 'Worker' }; // Escudo de seguridad
+        return { ...authUser, role: 'Worker' }; 
       }
-      
-      // Combinamos la información de autenticación con los datos de tu tabla (rol, nombre, etc.)
       return { ...authUser, ...data };
     } catch (error) {
       return { ...authUser, role: 'Worker' };
@@ -71,11 +67,17 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 🔥 AQUÍ ESTÁ LA CORRECCIÓN: Un cierre de sesión a prueba de fallos
   const logout = async () => {
     setLoading(true);
-    await supabase.auth.signOut();
-    setUser(null);
-    setLoading(false);
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.warn("Error interno al cerrar sesión, forzando salida:", error);
+    } finally {
+      setUser(null); // Borramos al usuario sí o sí
+      setLoading(false); // Apagamos la rueda de carga sí o sí
+    }
   };
 
   return <AuthContext.Provider value={{ user, login, logout, loading }}>{children}</AuthContext.Provider>;
