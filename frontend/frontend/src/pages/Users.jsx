@@ -2,12 +2,18 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { supabase } from '../lib/supabase'; // ✅ Ruta correcta hacia tu conexión de Supabase
+import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Spinner, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const ROLES = ['Admin','Engineer','Supervisor','Worker'];
+const ROLE_LABELS = {
+  Admin:      'Administrador',
+  Engineer:   'Ingeniero',
+  Supervisor: 'Supervisor',
+  Worker:     'Trabajador'
+};
 const ROLE_BADGE = {
   Admin:      'bg-brand-500/15 text-brand-400 border-brand-500/25',
   Engineer:   'bg-blue-500/15  text-blue-400  border-blue-500/25',
@@ -26,8 +32,9 @@ export default function Users() {
   const [fRole,  setFRole]  = useState('');
   const [err,    setErr]    = useState('');
 
+  // 🔥 1. CORRECCIÓN DE CACHÉ: Le damos una llave única 'detailed_admin'
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users'], 
+    queryKey: ['users', 'detailed_admin'], 
     queryFn: async () => {
       const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
       if (error) throw error;
@@ -50,7 +57,12 @@ export default function Users() {
         return data;
       }
     },
-    onSuccess:  () => { qc.invalidateQueries({queryKey: ['users']}); setModal(false); setErr(''); },
+    // 🔥 2. Invalida ambas cajas de caché al guardar
+    onSuccess:  () => { 
+      qc.invalidateQueries({queryKey: ['users']}); 
+      setModal(false); 
+      setErr(''); 
+    },
     onError:    (e)  => setErr(e.message || 'Error al guardar en la base de datos.')
   });
 
@@ -60,7 +72,10 @@ export default function Users() {
       if (error) throw error;
       return true;
     },
-    onSuccess:  () => { qc.invalidateQueries({queryKey: ['users']}); setDelTgt(null); },
+    onSuccess:  () => { 
+      qc.invalidateQueries({queryKey: ['users']}); 
+      setDelTgt(null); 
+    },
     onError:    (e) => alert(e.message || 'Error al eliminar el usuario')
   });
 
@@ -93,7 +108,7 @@ export default function Users() {
         {ROLES.map(r => (
           <div key={r} className={`card p-3 cursor-pointer transition-all text-center hover:border-surface-400 ${fRole===r?'border-brand-500/40':''}`} onClick={() => setFRole(fRole===r?'':r)}>
             <div className="text-2xl font-display font-black text-white">{users.filter(u=>u.role===r).length}</div>
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{r}</div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{ROLE_LABELS[r]}</div>
           </div>
         ))}
       </div>
@@ -124,9 +139,9 @@ export default function Users() {
                     </div>
                   </div>
                 </td>
-                <td className="td text-slate-400 text-xs">{u.email}</td>
+                <td className="td text-slate-400 text-xs">{u.email || '—'}</td>
                 <td className="td">
-                  <span className={`text-[11px] font-bold border px-2 py-0.5 rounded-full ${ROLE_BADGE[u.role]||ROLE_BADGE.Worker}`}>{u.role}</span>
+                  <span className={`text-[11px] font-bold border px-2 py-0.5 rounded-full ${ROLE_BADGE[u.role]||ROLE_BADGE.Worker}`}>{ROLE_LABELS[u.role] || u.role}</span>
                 </td>
                 <td className="td text-slate-400 text-xs">{u.position || '—'}</td>
                 <td className="td text-slate-400 text-xs">{u.specialty || '—'}</td>
@@ -157,7 +172,10 @@ export default function Users() {
           </Field>
           <Field label="Rol">
             <select className="input" value={form.role || 'Worker'} onChange={e => setForm({...form,role:e.target.value})}>
-              {ROLES.map(r => <option key={r}>{r}</option>)}
+              <option value="Admin">Administrador</option>
+              <option value="Engineer">Ingeniero</option>
+              <option value="Supervisor">Supervisor</option>
+              <option value="Worker">Trabajador</option>
             </select>
           </Field>
           <Field label="Cargo / Posición"><input className="input" value={form.position||''} onChange={e => setForm({...form,position:e.target.value})} placeholder="Ingeniero Civil…"/></Field>
