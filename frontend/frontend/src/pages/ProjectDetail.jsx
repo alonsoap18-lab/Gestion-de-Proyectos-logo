@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 // 🔥 1. Importamos la memoria del usuario
 import { useAuth } from '../context/AuthContext'; 
 
+
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 const TABS = ['Gantt','Tareas','Equipo','Información'];
 
