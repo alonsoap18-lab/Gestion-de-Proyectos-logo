@@ -125,7 +125,11 @@ export default function Projects() {
           <Field label="Presupuesto ($)"><input type="number" className="input" value={form.budget||''} min={0} step="0.01" onChange={e => setForm({...form, budget: e.target.value})}/></Field>
           <Field label="Estado">
             <select className="input" value={form.status || 'Planning'} onChange={e => setForm({...form, status: e.target.value})}>
-              <option>Planning</option><option>Active</option><option>Delayed</option><option>Completed</option><option>On Hold</option>
+              <option value="Planning">Planificación</option>
+              <option value="Active">Activo</option>
+              <option value="Delayed">Retrasado</option>
+              <option value="Completed">Completado</option>
+              <option value="On Hold">En Pausa</option>
             </select>
           </Field>
           <div className="col-span-2"><Field label="Descripción"><textarea className="input" rows={3} value={form.description||''} onChange={e => setForm({...form, description: e.target.value})}/></Field></div>
