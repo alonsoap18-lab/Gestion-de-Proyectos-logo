@@ -7,7 +7,6 @@ import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../comp
 import GanttChart from '../components/gantt/GanttChart';
 import { ArrowLeft, Plus, Pencil, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
-// 🔥 1. Importamos la memoria del usuario
 import { useAuth } from '../context/AuthContext'; 
 
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
@@ -18,9 +17,7 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const qc       = useQueryClient();
   
-  // 🔥 2. Sacamos al usuario actual de la memoria
   const { user } = useAuth();
-  // 🔥 3. Creamos la llave maestra: ¿Tiene permiso de gerencia?
   const isManager = ['Admin', 'Engineer', 'Supervisor'].includes(user?.role);
 
   const [tab,      setTab]      = useState('Gantt');
@@ -29,7 +26,8 @@ export default function ProjectDetail() {
   const [delTask,  setDelTask]  = useState(null);
   const [mbMod,    setMbMod]    = useState(false);
 
-  const { data: project, isLoading } = useQuery({
+  // 🔥 AQUÍ AGREGAMOS LA VARIABLE "error" PARA ATRAPAR FALLOS DE SUPABASE
+  const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('projects').select('*, tasks (*, users(name)), project_members (id, project_role, user_id, users(name, specialty, role))').eq('id', id).single();
@@ -83,6 +81,21 @@ export default function ProjectDetail() {
   });
 
   if (isLoading) return <Spinner/>;
+  
+  // 🔥 AQUÍ ESTÁ EL ESCUDO VISUAL: Si hay error, te avisa en lugar de trabarse
+  if (error) return (
+    <div className="card m-5 p-6 border-red-500/30 bg-red-500/10">
+      <h3 className="text-red-400 font-bold text-lg mb-2">Error de conexión</h3>
+      <p className="text-slate-300 text-sm mb-4">
+        {error.message || "La sesión expiró o hubo un problema al cargar los datos. Por favor, recarga la página o vuelve a iniciar sesión."}
+      </p>
+      <div className="flex gap-3">
+        <button className="btn-primary" onClick={() => window.location.reload()}>Recargar página</button>
+        <button className="btn-ghost" onClick={() => navigate('/projects')}>Volver a Proyectos</button>
+      </div>
+    </div>
+  );
+
   if (!project)  return <div className="text-slate-400 p-8">Proyecto no encontrado.</div>;
 
   const totalWeeks = project.duration_weeks || 12;
@@ -117,7 +130,6 @@ export default function ProjectDetail() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="section-title text-sm">Diagrama Gantt · {totalWeeks} semanas</h3>
-            {/* 🔥 CANDADO: Solo los gerentes ven el botón de Nueva Tarea */}
             {isManager && <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>}
           </div>
           <GanttChart project={project} tasks={project.tasks || []} onEditTask={isManager ? openEditTask : undefined} onDeleteTask={isManager ? t => setDelTask(t) : undefined} onMoveTask={isManager ? (tid, sw, ew) => moveTask.mutate({ tid, sw, ew }) : undefined}/>
@@ -128,7 +140,6 @@ export default function ProjectDetail() {
         <div className="table-wrap">
           <div className="flex items-center justify-between px-5 py-4 border-b border-surface-600 bg-surface-700">
             <h3 className="section-title text-sm">Tareas</h3>
-            {/* 🔥 CANDADO: Solo gerentes */}
             {isManager && <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>}
           </div>
           <table className="w-full">
@@ -142,7 +153,6 @@ export default function ProjectDetail() {
                   <td className="td"><Badge status={t.status}/></td>
                   <td className="td"><Progress value={t.progress} size="sm"/></td>
                   <td className="td"><span className={`text-xs font-semibold ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>{t.priority}</span></td>
-                  {/* 🔥 CANDADO: Solo gerentes ven el lápiz y el basurero */}
                   {isManager && (
                     <td className="td">
                       <div className="flex gap-1">
@@ -163,7 +173,6 @@ export default function ProjectDetail() {
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="section-title text-sm">Equipo</h3>
-            {/* 🔥 CANDADO: Solo gerentes pueden agregar personas */}
             {isManager && <button className="btn-primary" onClick={() => setMbMod(true)}><Plus size={14}/>Agregar</button>}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -171,7 +180,6 @@ export default function ProjectDetail() {
               <div key={m.id} className="flex items-center gap-3 p-3 bg-surface-700 rounded-xl border border-surface-600">
                 <Avatar name={m.name}/><div className="flex-1 min-w-0"><div className="font-semibold text-slate-200 text-sm">{m.name}</div><div className="text-xs text-slate-500">{m.specialty || m.role}</div></div>
                 <span className="text-xs bg-surface-600 text-slate-400 px-2 py-1 rounded-lg flex-shrink-0">{m.project_role}</span>
-                {/* 🔥 CANDADO: Solo gerentes pueden eliminar personas */}
                 {isManager && <button className="btn-icon hover:text-red-400 flex-shrink-0" onClick={() => removeMember.mutate(m.id)}><Trash2 size={12}/></button>}
               </div>
             ))}
@@ -190,7 +198,6 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* MODALES RESTRINGIDOS */}
       {isManager && (
         <>
           <Modal open={taskMod} onClose={() => setTaskMod(false)} title={taskForm.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
