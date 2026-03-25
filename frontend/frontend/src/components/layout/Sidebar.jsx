@@ -7,16 +7,17 @@ import {
   LogOut, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
+// 🛡️ AQUÍ DEFINIMOS QUÉ ROLES VEN QUÉ PESTAÑAS
 const NAV = [
-  { to: '/',          icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/projects',  icon: FolderKanban,    label: 'Proyectos'  },
-  { to: '/tasks',     icon: CheckSquare,     label: 'Tareas'     },
-  { to: '/employees', icon: Users,           label: 'Empleados'  },
-  { to: '/calendar',  icon: Calendar,        label: 'Calendario' },
-  { to: '/reports',   icon: BarChart3,       label: 'Reportes'   },
-  { to: '/machinery', icon: Wrench,          label: 'Maquinaria' },
-  { to: '/materials', icon: Package,         label: 'Materiales' },
-  { to: '/users',     icon: UserCog,         label: 'Usuarios',  adminOnly: true },
+  { to: '/',          icon: LayoutDashboard, label: 'Dashboard',  roles: ['Admin', 'Engineer', 'Supervisor', 'Worker'] },
+  { to: '/projects',  icon: FolderKanban,    label: 'Proyectos',  roles: ['Admin', 'Engineer', 'Supervisor'] },
+  { to: '/tasks',     icon: CheckSquare,     label: 'Tareas',     roles: ['Admin', 'Engineer', 'Supervisor', 'Worker'] },
+  { to: '/calendar',  icon: Calendar,        label: 'Calendario', roles: ['Admin', 'Engineer', 'Supervisor', 'Worker'] },
+  { to: '/machinery', icon: Wrench,          label: 'Maquinaria', roles: ['Admin', 'Engineer', 'Supervisor'] },
+  { to: '/materials', icon: Package,         label: 'Materiales', roles: ['Admin', 'Engineer', 'Supervisor'] },
+  { to: '/reports',   icon: BarChart3,       label: 'Reportes',   roles: ['Admin', 'Engineer', 'Supervisor'] },
+  { to: '/employees', icon: Users,           label: 'Empleados',  roles: ['Admin', 'Supervisor'] },
+  { to: '/users',     icon: UserCog,         label: 'Usuarios',   roles: ['Admin'] },
 ];
 
 const ROLE_COLOR = {
@@ -24,6 +25,14 @@ const ROLE_COLOR = {
   Engineer:   'text-blue-400',
   Supervisor: 'text-purple-400',
   Worker:     'text-slate-400',
+};
+
+// Traducción visual para el menú inferior
+const ROLE_NAME = {
+  Admin:      'Administrador',
+  Engineer:   'Ingeniero',
+  Supervisor: 'Supervisor',
+  Worker:     'Trabajador',
 };
 
 export default function Sidebar({ collapsed, toggle }) {
@@ -39,7 +48,6 @@ export default function Sidebar({ collapsed, toggle }) {
       {/* ── Logo ─────────────────────────────────────────── */}
       <div className={`flex items-center border-b border-surface-600 min-h-[68px] overflow-hidden
                        ${collapsed ? 'justify-center px-2 py-3' : 'px-3 py-3 gap-3'}`}>
-        {/* White bg pill for logo */}
         <div className={`bg-white rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200
                          ${collapsed ? 'w-9 h-9 p-1' : 'w-11 h-11 p-1.5'}`}>
           <img src="/icaa-logo.png" alt="ICAA" className="w-full h-full object-contain"/>
@@ -57,8 +65,10 @@ export default function Sidebar({ collapsed, toggle }) {
 
       {/* ── Nav ──────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-        {NAV.map(({ to, icon: Icon, label, adminOnly }) => {
-          if (adminOnly && user?.role !== 'Admin') return null;
+        {NAV.map(({ to, icon: Icon, label, roles }) => {
+          // 🛡️ EL CANDADO: Si el rol del usuario no está en la lista de permisos de esta pestaña, la ocultamos
+          if (roles && user?.role && !roles.includes(user.role)) return null;
+          
           const active = to === '/'
             ? loc.pathname === '/'
             : loc.pathname.startsWith(to);
@@ -90,7 +100,7 @@ export default function Sidebar({ collapsed, toggle }) {
           <div className="px-2.5 py-2 rounded-lg bg-surface-700 mb-1 border border-surface-600">
             <div className="text-xs font-semibold text-slate-200 truncate">{user?.name}</div>
             <div className={`text-[10px] font-bold uppercase tracking-wider ${ROLE_COLOR[user?.role] || 'text-slate-400'}`}>
-              {user?.role}
+              {ROLE_NAME[user?.role] || user?.role || 'Cargando...'}
             </div>
           </div>
         )}
