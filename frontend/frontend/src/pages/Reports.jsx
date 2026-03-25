@@ -19,7 +19,6 @@ const TABS = [
   { id:'employees', label:'Empleados',  icon: Users       },
 ];
 
-// Función para Exportar a CSV (Excel)
 function exportCSV(filename, rows, cols) {
   const header = cols.map(c => `"${c.label}"`).join(',');
   const body   = rows.map(r => cols.map(c => {
@@ -32,16 +31,13 @@ function exportCSV(filename, rows, cols) {
   a.click();
 }
 
-// Función profesional para Exportar a PDF
 function exportToPDF(filename, title, rows, cols) {
   const doc = new jsPDF();
   
-  // Título
   doc.setFontSize(18);
   doc.setTextColor(40, 40, 40);
   doc.text(title, 14, 22);
   
-  // Fecha de generación
   doc.setFontSize(10);
   doc.setTextColor(100);
   doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 14, 30);
@@ -59,7 +55,7 @@ function exportToPDF(filename, title, rows, cols) {
     startY: 36,
     theme: 'grid',
     styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255] }, // Azul oscuro ICAA
+    headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255] },
     alternateRowStyles: { fillColor: [245, 247, 250] }
   });
 
@@ -69,8 +65,9 @@ function exportToPDF(filename, title, rows, cols) {
 export default function Reports() {
   const [tab, setTab] = useState('projects'); 
 
+  // ✅ CORRECCIÓN: Nombres de caché únicos para Reportes ('reports')
   const { data: projects = [], isLoading: lp } = useQuery({ 
-    queryKey: ['projects'], 
+    queryKey: ['projects', 'reports'], 
     queryFn: async () => {
       const { data, error } = await supabase.from('projects').select('*');
       if (error) throw error; return data;
@@ -78,7 +75,7 @@ export default function Reports() {
   });
 
   const { data: tasks = [], isLoading: lt } = useQuery({ 
-    queryKey: ['tasks'],    
+    queryKey: ['tasks', 'reports'],    
     queryFn: async () => {
       const { data, error } = await supabase.from('tasks').select('*, projects(name), users(name)');
       if (error) throw error; 
@@ -87,7 +84,7 @@ export default function Reports() {
   });
 
   const { data: users = [], isLoading: lu } = useQuery({ 
-    queryKey: ['users'],    
+    queryKey: ['users', 'reports'],    
     queryFn: async () => {
       const { data, error } = await supabase.from('users').select('*');
       if (error) throw error; return data;
@@ -95,7 +92,7 @@ export default function Reports() {
   });
 
   const { data: materials = [], isLoading: lm } = useQuery({ 
-    queryKey: ['materials'],
+    queryKey: ['materials', 'reports'],
     queryFn: async () => {
       const { data, error } = await supabase.from('materials').select('*');
       if (error) throw error; return data;
@@ -109,8 +106,6 @@ export default function Reports() {
   const taskDoneRate = tasks.length ? Math.round((tasks.filter(t=>t.status==='Completed').length / tasks.length)*100) : 0;
   const avgProgress  = projects.length ? Math.round(projects.reduce((s,p) => s+(Number(p.progress)||0),0)/projects.length) : 0;
 
-  // --- LÓGICA DE EXPORTACIÓN ---
-  
   const handleExportCSV = () => {
     if (tab === 'projects') {
       exportCSV('reporte_proyectos.csv', projects, [
@@ -132,7 +127,6 @@ export default function Reports() {
 
   const handleExportPDF = () => {
     if (tab === 'projects') {
-      // Damos formato visual a los datos antes de imprimir el PDF
       const formatted = projects.map(p => ({
         ...p, progress: `${p.progress || 0}%`, budget: `$${Number(p.budget || 0).toLocaleString()}`
       }));
@@ -168,7 +162,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
           ['Presupuesto Total', `$${(totalBudget/1000).toFixed(0)}K`, 'text-green-400'],
@@ -183,7 +176,6 @@ export default function Reports() {
         ))}
       </div>
 
-      {/* TABS */}
       <div className="flex gap-2 mb-6 bg-surface-800 border border-surface-600 rounded-xl p-1 w-fit">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)} 
@@ -193,7 +185,6 @@ export default function Reports() {
         ))}
       </div>
 
-      {/* PROJECTS TAB */}
       {tab === 'projects' && (
         <div className="table-wrap">
           <table className="w-full">
@@ -230,7 +221,6 @@ export default function Reports() {
         </div>
       )}
 
-      {/* TASKS TAB */}
       {tab === 'tasks' && (
         <div className="table-wrap">
           <table className="w-full">
@@ -273,7 +263,6 @@ export default function Reports() {
         </div>
       )}
 
-      {/* EMPLOYEES TAB */}
       {tab === 'employees' && (
         <div className="table-wrap">
           <table className="w-full">
