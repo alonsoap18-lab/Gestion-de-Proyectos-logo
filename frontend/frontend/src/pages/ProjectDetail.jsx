@@ -26,20 +26,52 @@ export default function ProjectDetail() {
   const [delTask,  setDelTask]  = useState(null);
   const [mbMod,    setMbMod]    = useState(false);
 
-  // 🔥 AQUÍ AGREGAMOS LA VARIABLE "error" PARA ATRAPAR FALLOS DE SUPABASE
+  // 🔥 ESCUDO 1: Sanitización Extrema al pedir los datos a Supabase
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('projects').select('*, tasks (*, users(name)), project_members (id, project_role, user_id, users(name, specialty, role))').eq('id', id).single();
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*, tasks (*, users(name)), project_members (id, project_role, user_id, users(name, specialty, role))')
+        .eq('id', id)
+        .single();
+        
       if (error) throw error;
+      if (!data) throw new Error("Proyecto no encontrado en la base de datos.");
+
       let p = { ...data };
-      if (p.tasks) {
-        p.tasks = p.tasks.map(t => ({ ...t, assigned_name: t.users?.name || '' })).sort((a,b) => a.start_week - b.start_week);
-        p.progress = p.tasks.length > 0 ? Math.round(p.tasks.reduce((s,t) => s + (t.progress||0), 0) / p.tasks.length) : 0;
-      } else { p.progress = 0; }
-      if (p.project_members) {
-        p.members = p.project_members.map(pm => ({ id: pm.user_id, project_role: pm.project_role, name: pm.users?.name || '', specialty: pm.users?.specialty || '', role: pm.users?.role || '' }));
+      
+      // 🛡️ Sanitización de Tareas (Si hay datos corruptos o usuarios eliminados)
+      if (p.tasks && Array.isArray(p.tasks)) {
+        p.tasks = p.tasks.map(t => ({ 
+          ...t, 
+          assigned_name: t.users?.name || 'Usuario Eliminado',
+          progress: t.progress || 0,
+          start_week: t.start_week || 1,
+          end_week: t.end_week || 2
+        })).sort((a,b) => (a.start_week || 0) - (b.start_week || 0));
+        
+        p.progress = p.tasks.length > 0 
+          ? Math.round(p.tasks.reduce((s,t) => s + (t.progress||0), 0) / p.tasks.length) 
+          : 0;
+      } else { 
+        p.tasks = []; 
+        p.progress = 0; 
       }
+
+      // 🛡️ Sanitización de Miembros del Equipo
+      if (p.project_members && Array.isArray(p.project_members)) {
+        p.members = p.project_members.map(pm => ({ 
+          id: pm.user_id, 
+          project_role: pm.project_role || 'Member', 
+          name: pm.users?.name || 'Usuario Eliminado', 
+          specialty: pm.users?.specialty || 'Sin especialidad', 
+          role: pm.users?.role || 'Worker' 
+        }));
+      } else {
+        p.members = [];
+      }
+      
       return p;
     },
   });
@@ -82,7 +114,7 @@ export default function ProjectDetail() {
 
   if (isLoading) return <Spinner/>;
   
-  // 🔥 AQUÍ ESTÁ EL ESCUDO VISUAL: Si hay error, te avisa en lugar de trabarse
+  // 🔥 ESCUDO 2: Alerta visual si Supabase rechaza la conexión
   if (error) return (
     <div className="card m-5 p-6 border-red-500/30 bg-red-500/10">
       <h3 className="text-red-400 font-bold text-lg mb-2">Error de conexión</h3>
