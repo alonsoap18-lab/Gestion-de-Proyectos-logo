@@ -5,7 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../components/ui';
 import GanttChart from '../components/gantt/GanttChart';
-import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
+// ✅ AQUÍ ESTÁ EL LÁPIZ (Pencil) AGREGADO:
+import { ArrowLeft, Plus, Pencil, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
