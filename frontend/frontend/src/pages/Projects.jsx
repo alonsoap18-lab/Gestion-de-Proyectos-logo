@@ -52,7 +52,6 @@ export default function Projects() {
     onSuccess: () => { qc.invalidateQueries({queryKey: ['projects']}); setModal(false); },
   });
 
-  // 🔥 1. Función de borrado con "Detector de mentiras"
   const del = useMutation({
     mutationFn: async (id) => { 
       const { error } = await supabase.from('projects').delete().eq('id', id); 
@@ -60,6 +59,8 @@ export default function Projects() {
     },
     onSuccess: () => { 
       qc.invalidateQueries({queryKey: ['projects']}); 
+      // 🔥 LA LÍNEA MÁGICA: Limpiamos la caché de tareas también
+      qc.invalidateQueries({queryKey: ['tasks']}); 
       setDelTgt(null); 
     },
     onError: (e) => {
@@ -101,7 +102,6 @@ export default function Projects() {
               </div>
               <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                 <button className="btn-icon" onClick={() => { setForm({ ...p, budget: p.budget?.toString() || '' }); setModal(true); }}><Pencil size={13}/></button>
-                {/* Aquí el botón guarda el proyecto en delTgt al hacer clic */}
                 <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(p)}><Trash2 size={13}/></button>
               </div>
             </div>
@@ -150,7 +150,6 @@ export default function Projects() {
         </form>
       </Modal>
 
-      {/* 🔥 2. AQUÍ ESTÁ EL COMPONENTE FALTANTE: La ventana de confirmación */}
       <Confirm 
         open={!!delTgt} 
         onClose={() => setDelTgt(null)} 
