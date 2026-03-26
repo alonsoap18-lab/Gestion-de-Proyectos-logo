@@ -11,16 +11,14 @@ export function AuthProvider({ children }) {
   const fetchUserProfile = async (authUser) => {
     if (!authUser) return null;
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', authUser.email)
-        .single();
-        
-      if (error) {
-        return { ...authUser, role: 'Worker' }; 
-      }
-      return { ...authUser, ...data };
+      // Le damos máximo 8 segundos para traer el perfil
+      const response = await Promise.race([
+        supabase.from('users').select('*').eq('email', authUser.email).single(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 8000))
+      ]);
+      
+      if (response.error) return { ...authUser, role: 'Worker' }; 
+      return { ...authUser, ...response.data };
     } catch (error) {
       return { ...authUser, role: 'Worker' };
     }
@@ -28,12 +26,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const init = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data?.session?.user) {
-        const fullUser = await fetchUserProfile(data.session.user);
-        setUser(fullUser);
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          const fullUser = await fetchUserProfile(data.session.user);
+          setUser(fullUser);
+        }
+      } catch (e) {
+        console.warn("No se pudo recuperar la sesión:", e);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     init();
 
@@ -53,25 +56,29 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { ok: false, error: error.message };
+      // 🔥 EL TEMPORIZADOR: Máximo 10 segundos de espera. Evita que se quede "pegado" infinito.
+      const response = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Tiempo de conexión agotado. Revisa tu internet o antivirus.")), 10000))
+      ]);
+
+      if (response.error) return { ok: false, error: response.error.message };
       
-      const fullUser = await fetchUserProfile(data.user);
+      const fullUser = await fetchUserProfile(response.data.user);
       setUser(fullUser);
       
       return { ok: true };
     } catch (err) {
+      // Ahora sí regresará el error rápido y quitará el "Cargando..."
       return { ok: false, error: err.message };
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔥 NUEVO CIERRE DE SESIÓN: Rápido, forzado y limpia toda la basura del navegador
   const logout = async () => {
     setLoading(true);
     try {
-      // Le damos máximo 2 segundos a Supabase para responder
       await Promise.race([
         supabase.auth.signOut(),
         new Promise(resolve => setTimeout(resolve, 2000))
@@ -82,11 +89,8 @@ export function AuthProvider({ children }) {
       setUser(null); 
       setLoading(false); 
       
-      // Limpiamos la caché del navegador a la fuerza para evitar el token corrupto
       localStorage.clear();
       sessionStorage.clear();
-      
-      // Recargamos la página mandando al usuario al login limpio
       window.location.href = '/';
     }
   };
