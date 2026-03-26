@@ -1,3 +1,4 @@
+// src/main.jsx
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -6,14 +7,13 @@ import { AuthProvider } from './context/AuthContext';
 import App from './App';
 import './index.css';
 
-// 🔥 Aumentamos la memoria a 5 minutos y evitamos recargas innecesarias al cambiar de menú
+// 🔥 Motor optimizado: Rápido, estable y seguro para trabajo colaborativo
 const qc = new QueryClient({
   defaultOptions: { 
     queries: { 
-      retry: 1, 
-      staleTime: 300000, // 300,000 ms = 5 minutos
-      refetchOnWindowFocus: false,
-      refetchOnMount: false // Evita pedir datos de nuevo solo por cambiar de página en el menú
+      retry: 1, // Si falla la red, no congela la app intentando infinitamente
+      staleTime: 300000, // 5 minutos de memoria fresca para navegar súper rápido
+      refetchOnWindowFocus: false, // Evita asfixiar la base de datos al cambiar de pestaña en Chrome
     } 
   },
 });
