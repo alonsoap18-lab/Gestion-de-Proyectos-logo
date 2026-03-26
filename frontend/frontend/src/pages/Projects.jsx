@@ -24,7 +24,6 @@ export default function Projects() {
       if (error) throw error;
       
       return data.map(p => {
-        // 🔥 MAGIA AQUÍ: Calculamos el progreso
         const tCount = p.tasks?.length || 0;
         const pReal = tCount > 0 ? Math.round(p.tasks.reduce((s,t) => s + (t.progress||0), 0) / tCount) : 0;
         return {
@@ -53,9 +52,19 @@ export default function Projects() {
     onSuccess: () => { qc.invalidateQueries({queryKey: ['projects']}); setModal(false); },
   });
 
+  // 🔥 1. Función de borrado con "Detector de mentiras"
   const del = useMutation({
-    mutationFn: async (id) => { await supabase.from('projects').delete().eq('id', id); },
-    onSuccess: () => { qc.invalidateQueries({queryKey: ['projects']}); setDelTgt(null); },
+    mutationFn: async (id) => { 
+      const { error } = await supabase.from('projects').delete().eq('id', id); 
+      if (error) throw error;
+    },
+    onSuccess: () => { 
+      qc.invalidateQueries({queryKey: ['projects']}); 
+      setDelTgt(null); 
+    },
+    onError: (e) => {
+      alert("No se pudo borrar el proyecto: " + e.message);
+    }
   });
 
   const shown = filter ? projects.filter(p => p.status === filter) : projects;
@@ -92,6 +101,7 @@ export default function Projects() {
               </div>
               <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                 <button className="btn-icon" onClick={() => { setForm({ ...p, budget: p.budget?.toString() || '' }); setModal(true); }}><Pencil size={13}/></button>
+                {/* Aquí el botón guarda el proyecto en delTgt al hacer clic */}
                 <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(p)}><Trash2 size={13}/></button>
               </div>
             </div>
@@ -139,6 +149,15 @@ export default function Projects() {
           </div>
         </form>
       </Modal>
+
+      {/* 🔥 2. AQUÍ ESTÁ EL COMPONENTE FALTANTE: La ventana de confirmación */}
+      <Confirm 
+        open={!!delTgt} 
+        onClose={() => setDelTgt(null)} 
+        onConfirm={() => del.mutate(delTgt.id)} 
+        title="Eliminar Proyecto" 
+        message={`¿Estás seguro de que deseas eliminar el proyecto "${delTgt?.name}"? Esta acción eliminará también todas sus tareas y miembros asignados, y no se puede deshacer.`}
+      />
     </div>
   );
 }
