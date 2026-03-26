@@ -67,16 +67,27 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 🔥 AQUÍ ESTÁ LA CORRECCIÓN: Un cierre de sesión a prueba de fallos
+  // 🔥 NUEVO CIERRE DE SESIÓN: Rápido, forzado y limpia toda la basura del navegador
   const logout = async () => {
     setLoading(true);
     try {
-      await supabase.auth.signOut();
+      // Le damos máximo 2 segundos a Supabase para responder
+      await Promise.race([
+        supabase.auth.signOut(),
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]);
     } catch (error) {
       console.warn("Error interno al cerrar sesión, forzando salida:", error);
     } finally {
-      setUser(null); // Borramos al usuario sí o sí
-      setLoading(false); // Apagamos la rueda de carga sí o sí
+      setUser(null); 
+      setLoading(false); 
+      
+      // Limpiamos la caché del navegador a la fuerza para evitar el token corrupto
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Recargamos la página mandando al usuario al login limpio
+      window.location.href = '/login';
     }
   };
 
