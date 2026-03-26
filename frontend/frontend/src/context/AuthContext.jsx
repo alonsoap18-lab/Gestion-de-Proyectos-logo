@@ -87,7 +87,7 @@ export function AuthProvider({ children }) {
       sessionStorage.clear();
       
       // Recargamos la página mandando al usuario al login limpio
-      window.location.href = '/login';
+      window.location.href = '/';
     }
   };
 
