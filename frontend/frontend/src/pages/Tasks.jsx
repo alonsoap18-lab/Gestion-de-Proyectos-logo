@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
-import { Plus, Pencil, Trash2, CheckSquare, Filter } from 'lucide-react';
+// 🔥 1. Agregamos el ícono Download
+import { Plus, Pencil, Trash2, CheckSquare, Filter, Download } from 'lucide-react';
 
 const BLANK = { name:'', project_id:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
@@ -21,7 +22,6 @@ export default function Tasks() {
     queryFn: async () => {
       const { data, error } = await supabase.from('tasks').select('*, projects(name), users(name)').order('start_week', { ascending: true });
       if (error) throw error;
-      // 🔥 SANITIZACIÓN: Si el proyecto o usuario ya no existe, le ponemos un nombre por defecto para que no explote
       return data.map(t => ({ 
         ...t, 
         project_name: t.projects?.name || 'Proyecto Eliminado', 
@@ -66,7 +66,6 @@ export default function Tasks() {
       }
     },
     onSuccess: () => { 
-      // 🔥 REGLA DE ORO: Actualizamos Tareas y Proyectos al crear o editar
       qc.invalidateQueries({queryKey: ['tasks']}); 
       qc.invalidateQueries({queryKey: ['projects']}); 
       setModal(false); 
@@ -81,7 +80,6 @@ export default function Tasks() {
       return true;
     },
     onSuccess: () => { 
-      // 🔥 REGLA DE ORO: Actualizamos Tareas y Proyectos al eliminar
       qc.invalidateQueries({queryKey: ['tasks']}); 
       qc.invalidateQueries({queryKey: ['projects']}); 
       setDelTgt(null); 
@@ -105,6 +103,37 @@ export default function Tasks() {
   const STATUSES = ['Pending','Started','In Progress','Completed'];
   const STATUS_COLORS = { Pending:'text-slate-400', Started:'text-blue-400', 'In Progress':'text-brand-400', Completed:'text-green-400' };
 
+  // 🔥 2. MAGIA: Función para descargar a Excel (CSV nativo)
+  const exportToExcel = () => {
+    const headers = ['Tarea', 'Proyecto', 'Asignado', 'Semana Inicio', 'Semana Fin', 'Estado', 'Progreso (%)', 'Prioridad'];
+
+    const rows = filtered.map(t => [
+      `"${t.name || ''}"`,
+      `"${t.project_name || ''}"`,
+      `"${t.assigned_name || ''}"`,
+      t.start_week || '',
+      t.end_week || '',
+      `"${t.status || ''}"`,
+      t.progress || 0,
+      `"${t.priority || ''}"`
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    // \uFEFF asegura que Excel lea bien los acentos
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    const fecha = new Date().toISOString().split('T')[0];
+    link.setAttribute('download', `Reporte_Tareas_${fecha}.csv`);
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (isLoading) return <Spinner/>;
 
   return (
@@ -114,9 +143,16 @@ export default function Tasks() {
           <h1 className="page-title">Tareas</h1>
           <p className="text-slate-400 text-sm mt-0.5">{filtered.length} tarea(s)</p>
         </div>
-        <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
-          <Plus size={15}/> Nueva Tarea
-        </button>
+        
+        {/* 🔥 3. Agregamos el botón de descarga aquí */}
+        <div className="flex gap-3">
+          <button className="btn-ghost flex items-center gap-2" onClick={exportToExcel}>
+            <Download size={15}/> Exportar Excel
+          </button>
+          <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+            <Plus size={15}/> Nueva Tarea
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-3 mb-5">
