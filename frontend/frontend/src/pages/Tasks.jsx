@@ -21,7 +21,12 @@ export default function Tasks() {
     queryFn: async () => {
       const { data, error } = await supabase.from('tasks').select('*, projects(name), users(name)').order('start_week', { ascending: true });
       if (error) throw error;
-      return data.map(t => ({ ...t, project_name: t.projects?.name || 'Sin proyecto', assigned_name: t.users?.name || '' }));
+      // 🔥 SANITIZACIÓN: Si el proyecto o usuario ya no existe, le ponemos un nombre por defecto para que no explote
+      return data.map(t => ({ 
+        ...t, 
+        project_name: t.projects?.name || 'Proyecto Eliminado', 
+        assigned_name: t.users?.name || 'Sin Asignar / Eliminado' 
+      }));
     } 
   });
 
@@ -30,7 +35,7 @@ export default function Tasks() {
     queryFn: async () => {
       const { data, error } = await supabase.from('projects').select('id, name').order('name');
       if (error) throw error;
-      return data;
+      return data || [];
     } 
   });
 
@@ -39,7 +44,7 @@ export default function Tasks() {
     queryFn: async () => {
       const { data, error } = await supabase.from('users').select('id, name').order('name');
       if (error) throw error;
-      return data;
+      return data || [];
     } 
   });
 
@@ -49,24 +54,38 @@ export default function Tasks() {
       if (!payload.assigned_to) payload.assigned_to = null;
       if (!payload.project_id) throw new Error("Debes seleccionar un proyecto");
       delete payload.projects; delete payload.users; delete payload.project_name; delete payload.assigned_name;
+      
       if (payload.id) {
         const { data, error } = await supabase.from('tasks').update(payload).eq('id', payload.id).select();
-        if (error) throw error; return data;
+        if (error) throw error; 
+        return data;
       } else {
         const { data, error } = await supabase.from('tasks').insert([payload]).select();
-        if (error) throw error; return data;
+        if (error) throw error; 
+        return data;
       }
     },
-    onSuccess: () => { qc.invalidateQueries({queryKey: ['tasks']}); qc.invalidateQueries({queryKey: ['projects']}); setModal(false); },
+    onSuccess: () => { 
+      // 🔥 REGLA DE ORO: Actualizamos Tareas y Proyectos al crear o editar
+      qc.invalidateQueries({queryKey: ['tasks']}); 
+      qc.invalidateQueries({queryKey: ['projects']}); 
+      setModal(false); 
+    },
     onError: (e) => alert(e.message || 'Error al guardar la tarea')
   });
 
   const del = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('tasks').delete().eq('id', id);
-      if (error) throw error; return true;
+      if (error) throw error; 
+      return true;
     },
-    onSuccess: () => { qc.invalidateQueries({queryKey: ['tasks']}); qc.invalidateQueries({queryKey: ['projects']}); setDelTgt(null); },
+    onSuccess: () => { 
+      // 🔥 REGLA DE ORO: Actualizamos Tareas y Proyectos al eliminar
+      qc.invalidateQueries({queryKey: ['tasks']}); 
+      qc.invalidateQueries({queryKey: ['projects']}); 
+      setDelTgt(null); 
+    },
     onError: (e) => alert(e.message || 'Error al eliminar la tarea')
   });
 
