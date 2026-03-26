@@ -26,7 +26,9 @@ function exportCSV(filename, rows, cols) {
     if (val === null || val === undefined) val = '';
     return `"${val}"`;
   }).join(',')).join('\n');
-  const blob   = new Blob([header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
+  
+  // 🔥 AQUÍ ESTÁ LA MAGIA: \uFEFF fuerza a Excel a leer los acentos y las eñes correctamente
+  const blob   = new Blob(["\uFEFF" + header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
 }
