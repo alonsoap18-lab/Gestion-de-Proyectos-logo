@@ -3,7 +3,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://gestion-de-proyectos-logo-yax5.vercel.app/login',
+  // SOLUCIÓN: Apuntamos a la ruta de la API, no a la pantalla de login
+  baseURL: '/api', 
   timeout: 20000,
 });
 
@@ -19,6 +20,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('icaa_token');
       localStorage.removeItem('icaa_user');
+      // Redirigir al login solo si la sesión realmente expiró
       window.location.href = '/login';
     }
     return Promise.reject(err);
