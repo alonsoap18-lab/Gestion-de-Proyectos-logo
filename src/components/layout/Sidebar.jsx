@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, FolderKanban, CheckSquare, Users,
   Calendar, BarChart3, Wrench, Package, UserCog,
-  LogOut, ChevronLeft, ChevronRight
+  LogOut, ChevronLeft, ChevronRight, Truck
 } from 'lucide-react';
 
 const NAV = [
@@ -16,6 +16,7 @@ const NAV = [
   { to: '/reports',   icon: BarChart3,       label: 'Reportes'   },
   { to: '/machinery', icon: Wrench,          label: 'Maquinaria' },
   { to: '/materials', icon: Package,         label: 'Materiales' },
+  { to: '/proveedores', icon: Truck,         label: 'Proveedores'},
   { to: '/users',     icon: UserCog,         label: 'Usuarios',  adminOnly: true },
 ];
 
