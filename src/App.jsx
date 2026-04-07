@@ -13,6 +13,7 @@ import Calendar      from './pages/Calendar';
 import Reports       from './pages/Reports';
 import Machinery     from './pages/Machinery';
 import Materials     from './pages/Materials';
+import Proveedores   from './pages/Proveedores'; // <-- 1. AGREGAMOS ESTA IMPORTACIÓN
 import Users         from './pages/Users';
 
 /* ── Guards ───────────────────────────────────────────────── */
@@ -24,7 +25,7 @@ function Private({ children }) {
 function AdminOnly({ children }) {
   const { user } = useAuth();
   if (!user)                 return <Navigate to="/login" replace />;
-  if (user.role !== 'Admin') return <Navigate to="/"     replace />;
+  if (user.role !== 'Admin') return <Navigate to="/"      replace />;
   return children;
 }
 
@@ -46,6 +47,7 @@ export default function App() {
       <Route path="/reports"      element={<P el={<Reports />} />} />
       <Route path="/machinery"    element={<P el={<Machinery />} />} />
       <Route path="/materials"    element={<P el={<Materials />} />} />
+      <Route path="/proveedores"  element={<P el={<Proveedores />} />} /> {/* <-- 2. AGREGAMOS ESTA RUTA */}
       <Route path="/users"        element={<A el={<Users />} />} />
       <Route path="*"             element={<Navigate to="/" replace />} />
     </Routes>
