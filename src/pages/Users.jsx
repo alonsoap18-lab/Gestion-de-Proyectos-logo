@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { supabase } from '../supabase'; 
+import { supabase } from '../lib/supabase'; 
 import { Modal, Confirm, Spinner, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Shield, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
