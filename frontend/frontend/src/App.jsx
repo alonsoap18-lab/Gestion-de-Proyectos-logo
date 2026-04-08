@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Layout from './components/layout/Layout';
 
+// Imports de páginas
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
@@ -12,12 +13,11 @@ import Calendar from './pages/Calendar';
 import Reports from './pages/Reports';
 import Machinery from './pages/Machinery';
 import Materials from './pages/Materials';
-import Proveedores from './pages/Proveedores'; // <-- IMPORTANTE: Agregar esta línea
 import Users from './pages/Users';
+import Proveedores from './pages/Proveedores'; // Asegúrate de que el archivo se llame Proveedores.jsx (con P mayúscula)
 
 function Private({ children }) {
-  const { user } = useAuth();
-  // Quitamos el bloqueo de "loading" para que no se quede la pantalla negra
+  const { user } = useAuth(); // Quitamos el 'loading' de aquí para evitar la pantalla negra
   return user ? children : <Navigate to="/login" replace />;
 }
 
@@ -44,7 +44,7 @@ export default function App() {
       <Route path="/reports" element={<P el={<Reports />} />} />
       <Route path="/machinery" element={<P el={<Machinery />} />} />
       <Route path="/materials" element={<P el={<Materials />} />} />
-      <Route path="/proveedores" element={<P el={<Proveedores />} />} /> {/* <-- RUTA AGREGADA */}
+      <Route path="/proveedores" element={<P el={<Proveedores />} />} />
       <Route path="/users" element={<A el={<Users />} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
