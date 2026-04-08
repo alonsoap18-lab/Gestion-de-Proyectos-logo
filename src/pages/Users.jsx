@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { supabase } from '../supabase'; // <-- ASEGÚRATE DE QUE ESTA RUTA APUNTE A TU ARCHIVO supabase.js
+import { supabase } from '../supabase'; 
 import { Modal, Confirm, Spinner, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Shield, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -39,35 +39,24 @@ export default function Users() {
   // 2. CREAR O ACTUALIZAR USUARIO EN SUPABASE
   const save = useMutation({
     mutationFn: async (d) => {
-      // Preparamos los datos a enviar
       const payload = { ...d };
       
-      // Si la contraseña está vacía al editar, la quitamos para no borrarla en la BD
       if (!payload.password) {
         delete payload.password;
       }
 
       if (payload.id) {
-        // ACTUALIZAR (UPDATE)
-        const { data, error } = await supabase
-          .from('users')
-          .update(payload)
-          .eq('id', payload.id)
-          .select();
+        const { data, error } = await supabase.from('users').update(payload).eq('id', payload.id).select();
         if (error) throw error;
         return data;
       } else {
-        // CREAR NUEVO (INSERT)
-        const { data, error } = await supabase
-          .from('users')
-          .insert([payload])
-          .select();
+        const { data, error } = await supabase.from('users').insert([payload]).select();
         if (error) throw error;
         return data;
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['users']); setModal(false); setErr(''); },
-    onError:    (e)  => setErr(e.message || 'Error al guardar en la base de datos.') // Esto evita el Error #31
+    onError:    (e)  => setErr(e.message || 'Error al guardar en la base de datos.') 
   });
 
   // 3. ELIMINAR USUARIO EN SUPABASE
@@ -125,6 +114,7 @@ export default function Users() {
         <input className="input pl-8" placeholder="Buscar usuario…" value={search} onChange={e => setSearch(e.target.value)}/>
       </div>
 
+      {/* Tabla de usuarios */}
       <div className="table-wrap">
         <table className="w-full">
           <thead>
@@ -143,4 +133,99 @@ export default function Users() {
             {shown.map(u => (
               <tr key={u.id} className="tr-hover">
                 <td className="td">
-                  <div className="flex items
+                  <div className="flex items-center gap-3">
+                    <Avatar text={u.name} />
+                    <span className="font-medium text-white">{u.name}</span>
+                  </div>
+                </td>
+                <td className="td text-slate-400">{u.email}</td>
+                <td className="td">
+                  <span className={`px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wider border ${ROLE_BADGE[u.role] || ROLE_BADGE.Worker}`}>
+                    {u.role}
+                  </span>
+                </td>
+                <td className="td text-slate-400">{u.position || '-'}</td>
+                <td className="td text-slate-400">{u.specialty || '-'}</td>
+                <td className="td text-slate-400">{u.phone || '-'}</td>
+                <td className="td text-slate-400">
+                  {u.created_at ? format(new Date(u.created_at), 'dd MMM yyyy') : '-'}
+                </td>
+                <td className="td">
+                  <div className="flex justify-end gap-2">
+                    <button className="btn-icon text-slate-400 hover:text-brand-400" onClick={() => { setForm(u); setErr(''); setModal(true); }}>
+                      <Pencil size={15}/>
+                    </button>
+                    {u.id !== me?.id && ( // Evitar que el usuario se borre a sí mismo
+                      <button className="btn-icon text-slate-400 hover:text-red-400" onClick={() => setDelTgt(u)}>
+                        <Trash2 size={15}/>
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal Crear/Editar Usuario */}
+      {modal && (
+        <Modal title={form.id ? 'Editar Usuario' : 'Nuevo Usuario'} onClose={() => setModal(false)}>
+          <form className="p-4 space-y-4" onSubmit={e => { e.preventDefault(); save.mutate(form); }}>
+            {err && <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded">{err}</div>}
+            
+            <Field label="Nombre Completo">
+              <input required className="input w-full" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} />
+            </Field>
+            
+            <Field label="Correo Electrónico">
+              <input required type="email" className="input w-full" value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} />
+            </Field>
+            
+            <Field label={form.id ? "Nueva Contraseña (opcional)" : "Contraseña"}>
+              <input type="password" required={!form.id} className="input w-full" value={form.password || ''} onChange={e => setForm({...form, password: e.target.value})} />
+            </Field>
+
+            <Field label="Rol en el Sistema">
+              <select className="input w-full" value={form.role || 'Worker'} onChange={e => setForm({...form, role: e.target.value})}>
+                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Cargo / Puesto">
+                <input className="input w-full" value={form.position || ''} onChange={e => setForm({...form, position: e.target.value})} />
+              </Field>
+              <Field label="Especialidad">
+                <input className="input w-full" value={form.specialty || ''} onChange={e => setForm({...form, specialty: e.target.value})} />
+              </Field>
+            </div>
+            
+            <Field label="Teléfono">
+              <input className="input w-full" value={form.phone || ''} onChange={e => setForm({...form, phone: e.target.value})} />
+            </Field>
+
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-surface-400">
+              <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+              <button type="submit" className="btn-primary" disabled={save.isPending}>
+                {save.isPending ? 'Guardando...' : 'Guardar Usuario'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Modal Confirmar Eliminación */}
+      {delTgt && (
+        <Confirm 
+          title="Eliminar usuario" 
+          text={`¿Estás seguro que deseas eliminar permanentemente a ${delTgt.name}?`}
+          confirmText="Eliminar"
+          onCancel={() => setDelTgt(null)}
+          onConfirm={() => del.mutate(delTgt.id)}
+          loading={del.isPending}
+        />
+      )}
+    </div>
+  );
+}
