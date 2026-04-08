@@ -13,7 +13,7 @@ import Calendar      from './pages/Calendar';
 import Reports       from './pages/Reports';
 import Machinery     from './pages/Machinery';
 import Materials     from './pages/Materials';
-import Proveedores   from './pages/Proveedores'; // <-- 1. AGREGAMOS ESTA IMPORTACIÓN
+import Proveedores   from './pages/ProveedoresPage';
 import Users         from './pages/Users';
 
 /* ── Guards ───────────────────────────────────────────────── */
