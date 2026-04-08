@@ -1,6 +1,6 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useState } from 'react';
-import { supabase } from '../supabase'; // ⚠️ ASEGÚRATE de que la ruta apunte a tu supabase.js (quizá sea '../lib/supabase' o '../../supabase')
+import { supabase } from '../lib/supabase'; // <-- ¡Ruta corregida apuntando a lib!
 
 const Ctx = createContext(null);
 
@@ -20,7 +20,7 @@ export function AuthProvider({ children }) {
         .select('*')
         .eq('email', email)
         .eq('password', password)
-        .single(); // single() busca que haya exactamente 1 coincidencia
+        .single();
 
       // 2. Si hay error o no encuentra el usuario, rechazamos el login
       if (error || !data) {
@@ -31,7 +31,7 @@ export function AuthProvider({ children }) {
       localStorage.setItem('icaa_user', JSON.stringify(data));
       setUser(data);
       
-      // Limpiamos cualquier rastro del sistema falso de Claude
+      // Limpiamos cualquier rastro del sistema viejo
       localStorage.removeItem('icaa_token'); 
       
       return { ok: true };
