@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../ruta/a/tu/supabaseClient'; // ⚠️ IMPORTANTE: Ajusta esta ruta a tu archivo real
+import { supabase } from '../lib/supabase';
 
 export default function ModalNuevoProveedor({ cerrarModal, recargarProveedores }) {
   // Estados de los campos
