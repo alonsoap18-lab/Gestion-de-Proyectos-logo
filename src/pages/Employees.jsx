@@ -1,7 +1,7 @@
 // src/pages/Employees.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../supabase'; // ⚠️ REVISA QUE ESTA RUTA APUNTE A TU supabase.js
+import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Spinner, Empty, Field, Avatar } from '../components/ui';
 import { Plus, Pencil, Trash2, Users, Mail, Phone, Briefcase, Star, Search } from 'lucide-react';
 
