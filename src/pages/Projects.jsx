@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field, StatCard } from '../components/ui';
 import { Plus, Pencil, Trash2, FolderKanban, MapPin, Calendar, Clock, Users, ChevronRight, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
@@ -17,17 +17,39 @@ export default function Projects() {
   const [delTgt, setDelTgt] = useState(null);
   const [filter, setFilter] = useState('');
 
+  // 1. LEER PROYECTOS DESDE SUPABASE
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn:  () => api.get('/projects').then(r => r.data),
+    queryFn:  async () => {
+      const { data, error } = await supabase.from('projects').select('*');
+      if (error) throw error;
+      return data;
+    },
   });
 
+  // 2. CREAR O EDITAR PROYECTO
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/projects/${form.id}`, d) : api.post('/projects', d),
+    mutationFn: async (d) => {
+      if (d.id) {
+        const { data, error } = await supabase.from('projects').update(d).eq('id', d.id).select();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase.from('projects').insert([d]).select();
+        if (error) throw error;
+        return data;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['projects']); setModal(false); },
   });
+
+  // 3. ELIMINAR PROYECTO
   const del = useMutation({
-    mutationFn: id => api.delete(`/projects/${id}`),
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('projects').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
     onSuccess:  () => qc.invalidateQueries(['projects']),
   });
 
