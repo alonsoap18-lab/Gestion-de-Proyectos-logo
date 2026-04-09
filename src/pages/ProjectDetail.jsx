@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../components/ui';
 import GanttChart from '../components/gantt/GanttChart';
 import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
