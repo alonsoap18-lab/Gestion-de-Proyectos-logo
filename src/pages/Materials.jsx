@@ -1,7 +1,7 @@
 // src/pages/Materials.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
+import { supabase } from '../lib/supabase'; 
 import { Modal, Confirm, Spinner, Empty, Field, Progress } from '../components/ui';
 import { Plus, Pencil, Trash2, Package, Search, Filter } from 'lucide-react';
 
@@ -16,21 +16,46 @@ export default function Materials() {
   const [fProj,  setFProj]  = useState('');
   const [search, setSearch] = useState('');
 
-  // 1. LEER MATERIALES Y PROYECTOS DESDE SUPABASE DIRECTAMENTE
-  const { data: rawMaterials = [], isLoading } = useQuery({ 
+  // 1. LEER MATERIALES
+  const { data: rawMaterials = [], isLoading: loadingMat } = useQuery({ 
     queryKey:['materials'], 
-    queryFn: async () => { const { data, error } = await supabase.from('materials').select('*'); if(error) throw error; return data; }
-  });
-  const { data: projects  = [] } = useQuery({ 
-    queryKey:['projects'],  
-    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('materials').select('*'); 
+      if(error) {
+        alert("Error cargando materiales: " + error.message);
+        throw error;
+      }
+      return data; 
+    }
   });
 
-  // 2. CREAR O ACTUALIZAR MATERIAL
+  // 2. LEER PROYECTOS (Con alarma si falla)
+  const { data: projects  = [], isLoading: loadingProj } = useQuery({ 
+    queryKey:['projects'],  
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('projects').select('*'); 
+      if(error) {
+        alert("Error cargando proyectos: " + error.message);
+        throw error;
+      }
+      return data; 
+    }
+  });
+
+  // 3. CREAR O ACTUALIZAR (Con alarma si falla)
   const save = useMutation({
     mutationFn: async (d) => {
-      // AQUÍ ESTÁ EL TRUCO DE LA MAGIA: Forzar a null si el project_id viene vacío
-      const dataToSave = { ...d, project_id: d.project_id || null };
+      // Limpiamos los datos para que Supabase no se enoje con textos vacíos
+      const dataToSave = {
+        name: d.name,
+        unit: d.unit,
+        quantity: d.quantity || 0,
+        used_quantity: d.used_quantity || 0,
+        cost_per_unit: d.cost_per_unit || 0,
+        project_id: d.project_id || null,
+        supplier: d.supplier || null,
+        notes: d.notes || null
+      };
       
       if (d.id) {
         const { data, error } = await supabase.from('materials').update(dataToSave).eq('id', d.id).select();
@@ -43,9 +68,14 @@ export default function Materials() {
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['materials']); setModal(false); },
+    onError: (error) => {
+      // ¡ESTA ALARMA NOS DIRÁ EXACTAMENTE QUÉ ESTÁ MAL EN LA BASE DE DATOS!
+      alert(`Error de Supabase al guardar: ${error.message}\n\nDetalles: Revisa si los nombres de las columnas coinciden.`);
+      console.error("Error de Supabase:", error);
+    }
   });
 
-  // 3. ELIMINAR MATERIAL
+  // 4. ELIMINAR
   const del = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('materials').delete().eq('id', id);
@@ -53,9 +83,9 @@ export default function Materials() {
       return true;
     },
     onSuccess:  () => qc.invalidateQueries(['materials']),
+    onError: (error) => alert("Error al eliminar: " + error.message)
   });
 
-  // Procesamos para cruzar datos y aplicar filtros
   const materials = rawMaterials.map(m => {
     const p = projects.find(proj => proj.id === m.project_id);
     return { ...m, project_name: p ? p.name : null };
@@ -70,7 +100,7 @@ export default function Materials() {
   const totalCost   = shown.reduce((s,m) => s + (m.quantity * (m.cost_per_unit||0)), 0);
   const usedCost    = shown.reduce((s,m) => s + ((m.used_quantity||0) * (m.cost_per_unit||0)), 0);
 
-  if (isLoading) return <Spinner/>;
+  if (loadingMat || loadingProj) return <Spinner/>;
 
   return (
     <div>
@@ -87,7 +117,6 @@ export default function Materials() {
         </button>
       </div>
 
-      {/* Summary cards per project */}
       {projects.filter(p => materials.some(m => m.project_id === p.id)).length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 mb-5">
           {projects.filter(p => materials.some(m => m.project_id === p.id)).map(p => {
@@ -106,7 +135,6 @@ export default function Materials() {
         </div>
       )}
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-4 items-center">
         <div className="relative">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"/>
@@ -238,7 +266,7 @@ export default function Materials() {
           <div className="col-span-2 flex justify-end gap-2 pt-1">
             <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
             <button type="submit" className="btn-primary" disabled={save.isPending}>
-              {form.id ? 'Actualizar' : 'Agregar Material'}
+              {save.isPending ? 'Guardando...' : (form.id ? 'Actualizar' : 'Agregar Material')}
             </button>
           </div>
         </form>
