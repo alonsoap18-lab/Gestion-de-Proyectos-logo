@@ -6,7 +6,7 @@ import {
   startOfWeek, endOfWeek, isSameMonth, isToday, isSameDay, parseISO, addMonths, subMonths
 } from 'date-fns';
 import { es } from 'date-fns/locale';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Modal, Field, Spinner } from '../components/ui';
 import { ChevronLeft, ChevronRight, Plus, X, Calendar as CalIcon } from 'lucide-react';
 
@@ -25,15 +25,39 @@ export default function CalendarPage() {
   const [filterProj, setFilterProj] = useState('');
   const [filterType, setFilterType] = useState('');
 
-  const { data: events   = [], isLoading } = useQuery({ queryKey:['calendar'], queryFn: () => api.get('/calendar').then(r => r.data) });
-  const { data: projects = [] }            = useQuery({ queryKey:['projects'], queryFn: () => api.get('/projects').then(r => r.data) });
+  // 1. LEER EVENTOS Y PROYECTOS DESDE SUPABASE DIRECTAMENTE
+  const { data: events   = [], isLoading } = useQuery({ 
+    queryKey:['calendar'], 
+    queryFn: async () => { const { data, error } = await supabase.from('calendar').select('*'); if(error) throw error; return data; }
+  });
+  const { data: projects = [] }            = useQuery({ 
+    queryKey:['projects'], 
+    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+  });
 
+  // 2. CREAR O ACTUALIZAR EVENTO
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/calendar/${form.id}`, d) : api.post('/calendar', d),
+    mutationFn: async (d) => {
+      if (d.id) {
+        const { data, error } = await supabase.from('calendar').update(d).eq('id', d.id).select();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase.from('calendar').insert([d]).select();
+        if (error) throw error;
+        return data;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['calendar']); setModal(false); },
   });
+
+  // 3. ELIMINAR EVENTO
   const del = useMutation({
-    mutationFn: id => api.delete(`/calendar/${id}`),
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('calendar').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
     onSuccess:  () => { qc.invalidateQueries(['calendar']); setModal(false); },
   });
 
@@ -44,10 +68,14 @@ export default function CalendarPage() {
   const gridEnd     = endOfWeek(monthEnd,    { weekStartsOn: 1 });
   const days        = eachDayOfInterval({ start: gridStart, end: gridEnd });
 
+  // Procesamos para enlazar nombre de proyectos
   const filtered = events.filter(ev => {
     if (filterProj && ev.project_id !== filterProj) return false;
     if (filterType && ev.type        !== filterType) return false;
     return true;
+  }).map(ev => {
+    const p = projects.find(proj => proj.id === ev.project_id);
+    return { ...ev, project_name: p ? p.name : null };
   });
 
   const eventsForDay = (day) =>
