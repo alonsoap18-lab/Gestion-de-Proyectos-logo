@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
+import { supabase } from '../lib/supabase'; // Conexión directa a Supabase
 import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../components/ui';
 import GanttChart from '../components/gantt/GanttChart';
 import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
@@ -13,49 +13,104 @@ const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'
 const TABS = ['Gantt','Tareas','Equipo','Información'];
 
 export default function ProjectDetail() {
-  const { id }   = useParams();
+  const { id }   = useParams(); // Obtiene el ID del proyecto desde la URL
   const navigate = useNavigate();
   const qc       = useQueryClient();
+  
   const [tab,      setTab]      = useState('Gantt');
   const [taskMod,  setTaskMod]  = useState(false);
   const [taskForm, setTaskForm] = useState(BLANK_TASK);
   const [delTask,  setDelTask]  = useState(null);
   const [mbMod,    setMbMod]    = useState(false);
 
-  const { data: project, isLoading } = useQuery({
+  // 1. CARGAMOS DATOS DEL PROYECTO, SUS TAREAS Y MIEMBROS DESDE SUPABASE
+  const { data: projectData, isLoading: isLoadingProject } = useQuery({
     queryKey: ['project', id],
-    queryFn:  () => api.get(`/projects/${id}`).then(r => r.data),
+    queryFn:  async () => {
+      // Pedimos la info principal del proyecto
+      const { data: pData, error: pError } = await supabase.from('projects').select('*').eq('id', id).single();
+      if (pError) throw pError;
+      
+      // Pedimos las tareas del proyecto
+      const { data: tData } = await supabase.from('tasks').select('*').eq('project_id', id);
+      
+      // Pedimos los miembros asignados
+      const { data: mData } = await supabase.from('project_members').select('*, users(*)').eq('project_id', id);
+      
+      // Armamos un objeto completo como el que esperaba tu código original
+      return {
+        ...pData,
+        tasks: tData || [],
+        members: (mData || []).map(m => ({
+          id: m.users.id,
+          name: m.users.name,
+          role: m.users.role,
+          project_role: m.project_role,
+          specialty: m.users.specialty
+        }))
+      };
+    },
   });
+
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn:  () => api.get('/users').then(r => r.data),
+    queryFn:  async () => {
+      const { data } = await supabase.from('users').select('*');
+      return data || [];
+    },
   });
 
+  // 2. MUTACIONES PARA TAREAS
   const saveTask = useMutation({
-    mutationFn: d => taskForm.id ? api.put(`/tasks/${taskForm.id}`, d) : api.post('/tasks', d),
+    mutationFn: async (d) => {
+      if (taskForm.id) {
+        const { error } = await supabase.from('tasks').update(d).eq('id', taskForm.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('tasks').insert([d]);
+        if (error) throw error;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['project', id]); setTaskMod(false); },
   });
+
   const delTaskMut = useMutation({
-    mutationFn: tid => api.delete(`/tasks/${tid}`),
-    onSuccess:  () => qc.invalidateQueries(['project', id]),
+    mutationFn: async (tid) => {
+      const { error } = await supabase.from('tasks').delete().eq('id', tid);
+      if(error) throw error;
+    },
+    onSuccess:  () => { qc.invalidateQueries(['project', id]); setDelTask(null); },
   });
+
   const moveTask = useMutation({
-    mutationFn: ({ tid, sw, ew }) => api.patch(`/tasks/${tid}/position`, { start_week: sw, end_week: ew }),
+    mutationFn: async ({ tid, sw, ew }) => {
+      const { error } = await supabase.from('tasks').update({ start_week: sw, end_week: ew }).eq('id', tid);
+      if(error) throw error;
+    },
     onSuccess:  () => qc.invalidateQueries(['project', id]),
   });
+
+  // 3. MUTACIONES PARA EQUIPO
   const addMember = useMutation({
-    mutationFn: d => api.post(`/projects/${id}/members`, d),
+    mutationFn: async (d) => {
+      const { error } = await supabase.from('project_members').insert([{ project_id: id, ...d }]);
+      if (error) throw error;
+    },
     onSuccess:  () => { qc.invalidateQueries(['project', id]); setMbMod(false); },
   });
+
   const removeMember = useMutation({
-    mutationFn: uid => api.delete(`/projects/${id}/members/${uid}`),
+    mutationFn: async (uid) => {
+      const { error } = await supabase.from('project_members').delete().eq('project_id', id).eq('user_id', uid);
+      if (error) throw error;
+    },
     onSuccess:  () => qc.invalidateQueries(['project', id]),
   });
 
-  if (isLoading) return <Spinner/>;
-  if (!project)  return <div className="text-slate-400 p-8">Proyecto no encontrado.</div>;
+  if (isLoadingProject) return <Spinner/>;
+  if (!projectData)  return <div className="text-slate-400 p-8">Proyecto no encontrado.</div>;
 
-  const totalWeeks = project.duration_weeks || 12;
+  const totalWeeks = projectData.duration_weeks || 12;
 
   function openNewTask() { setTaskForm({ ...BLANK_TASK, project_id: id }); setTaskMod(true); }
   function openEditTask(t) { setTaskForm({ ...t, project_id: id }); setTaskMod(true); }
@@ -68,18 +123,18 @@ export default function ProjectDetail() {
           <ArrowLeft size={16}/>
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="page-title">{project.name}</h1>
+          <h1 className="page-title">{projectData.name}</h1>
           <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-slate-500">
-            {project.client   && <span className="flex items-center gap-1"><MapPin size={10}/>{project.client}</span>}
-            {project.location && <span className="flex items-center gap-1"><MapPin size={10}/>{project.location}</span>}
-            {project.start_date && <span className="flex items-center gap-1"><Calendar size={10}/>{format(new Date(project.start_date),'dd/MM/yyyy')}</span>}
+            {projectData.client   && <span className="flex items-center gap-1"><MapPin size={10}/>{projectData.client}</span>}
+            {projectData.location && <span className="flex items-center gap-1"><MapPin size={10}/>{projectData.location}</span>}
+            {projectData.start_date && <span className="flex items-center gap-1"><Calendar size={10}/>{format(new Date(projectData.start_date),'dd/MM/yyyy')}</span>}
             <span className="flex items-center gap-1"><Clock size={10}/>{totalWeeks} semanas</span>
-            {project.budget > 0 && <span className="flex items-center gap-1"><DollarSign size={10}/>Budget: ${Number(project.budget).toLocaleString()}</span>}
+            {projectData.budget > 0 && <span className="flex items-center gap-1"><DollarSign size={10}/>Budget: ${Number(projectData.budget).toLocaleString()}</span>}
           </div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
-          <Badge status={project.status}/>
-          <div className="w-28"><Progress value={project.progress || 0} size="sm"/></div>
+          <Badge status={projectData.status}/>
+          <div className="w-28"><Progress value={projectData.progress || 0} size="sm"/></div>
         </div>
       </div>
 
@@ -100,13 +155,13 @@ export default function ProjectDetail() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="section-title text-sm">
               Diagrama Gantt · {totalWeeks} semanas ·{' '}
-              {project.start_date && format(new Date(project.start_date), 'dd/MM/yyyy')}
+              {projectData.start_date && format(new Date(projectData.start_date), 'dd/MM/yyyy')}
             </h3>
             <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
           </div>
           <GanttChart
-            project={project}
-            tasks={project.tasks || []}
+            project={projectData}
+            tasks={projectData.tasks || []}
             onEditTask={openEditTask}
             onDeleteTask={t => setDelTask(t)}
             onMoveTask={(tid, sw, ew) => moveTask.mutate({ tid, sw, ew })}
@@ -118,7 +173,7 @@ export default function ProjectDetail() {
       {tab === 'Tareas' && (
         <div className="table-wrap">
           <div className="flex items-center justify-between px-5 py-4 border-b border-surface-600 bg-surface-700">
-            <h3 className="section-title text-sm">Tareas ({project.tasks?.length || 0})</h3>
+            <h3 className="section-title text-sm">Tareas ({projectData.tasks?.length || 0})</h3>
             <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
           </div>
           <table className="w-full">
@@ -134,28 +189,31 @@ export default function ProjectDetail() {
               </tr>
             </thead>
             <tbody>
-              {(project.tasks || []).map(t => (
-                <tr key={t.id} className="tr-hover">
-                  <td className="td font-medium text-slate-200">{t.name}</td>
-                  <td className="td text-slate-400">{t.assigned_name || '—'}</td>
-                  <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
-                  <td className="td"><Badge status={t.status}/></td>
-                  <td className="td"><Progress value={t.progress} size="sm"/></td>
-                  <td className="td">
-                    <span className={`text-xs font-semibold
-                      ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
-                      {t.priority}
-                    </span>
-                  </td>
-                  <td className="td">
-                    <div className="flex gap-1">
-                      <button className="btn-icon" onClick={() => openEditTask(t)}><Plus size={12} className="rotate-45"/></button>
-                      <button className="btn-icon hover:text-red-400" onClick={() => setDelTask(t)}><Trash2 size={12}/></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!project.tasks?.length && (
+              {(projectData.tasks || []).map(t => {
+                const assignedUser = allUsers.find(u => u.id === t.assigned_to);
+                return (
+                  <tr key={t.id} className="tr-hover">
+                    <td className="td font-medium text-slate-200">{t.name}</td>
+                    <td className="td text-slate-400">{assignedUser ? assignedUser.name : '—'}</td>
+                    <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
+                    <td className="td"><Badge status={t.status}/></td>
+                    <td className="td"><Progress value={t.progress} size="sm"/></td>
+                    <td className="td">
+                      <span className={`text-xs font-semibold
+                        ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
+                        {t.priority}
+                      </span>
+                    </td>
+                    <td className="td">
+                      <div className="flex gap-1">
+                        <button className="btn-icon" onClick={() => openEditTask(t)}><Plus size={12} className="rotate-45"/></button>
+                        <button className="btn-icon hover:text-red-400" onClick={() => setDelTask(t)}><Trash2 size={12}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!projectData.tasks?.length && (
                 <tr><td colSpan={7} className="td text-center text-slate-500 py-10">Sin tareas</td></tr>
               )}
             </tbody>
@@ -171,7 +229,7 @@ export default function ProjectDetail() {
             <button className="btn-primary" onClick={() => setMbMod(true)}><Plus size={14}/>Agregar</button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(project.members || []).map(m => (
+            {(projectData.members || []).map(m => (
               <div key={m.id} className="flex items-center gap-3 p-3 bg-surface-700 rounded-xl border border-surface-600">
                 <Avatar name={m.name}/>
                 <div className="flex-1 min-w-0">
@@ -185,7 +243,7 @@ export default function ProjectDetail() {
                   onClick={() => removeMember.mutate(m.id)}><Trash2 size={12}/></button>
               </div>
             ))}
-            {!project.members?.length && (
+            {!projectData.members?.length && (
               <p className="col-span-2 text-slate-500 text-sm text-center py-8">Sin miembros asignados</p>
             )}
           </div>
@@ -198,15 +256,15 @@ export default function ProjectDetail() {
           <h3 className="section-title text-sm mb-4">Información del Proyecto</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             {[
-              ['Cliente',       project.client],
-              ['Ubicación',     project.location],
-              ['Inicio',        project.start_date ? format(new Date(project.start_date),'dd/MM/yyyy') : null],
-              ['Duración',      `${project.duration_weeks} semanas`],
-              ['Estado',        project.status],
-              ['Presupuesto',   project.budget ? `$${Number(project.budget).toLocaleString()}` : null],
-              ['Progreso',      `${project.progress}%`],
-              ['Tareas',        project.tasks?.length ?? 0],
-              ['Miembros',      project.members?.length ?? 0],
+              ['Cliente',       projectData.client],
+              ['Ubicación',     projectData.location],
+              ['Inicio',        projectData.start_date ? format(new Date(projectData.start_date),'dd/MM/yyyy') : null],
+              ['Duración',      `${projectData.duration_weeks} semanas`],
+              ['Estado',        projectData.status],
+              ['Presupuesto',   projectData.budget ? `$${Number(projectData.budget).toLocaleString()}` : null],
+              ['Progreso',      `${projectData.progress || 0}%`],
+              ['Tareas',        projectData.tasks?.length ?? 0],
+              ['Miembros',      projectData.members?.length ?? 0],
             ].map(([l, v]) => (
               <div key={l} className="bg-surface-700 rounded-lg p-3 border border-surface-600">
                 <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">{l}</div>
@@ -214,10 +272,10 @@ export default function ProjectDetail() {
               </div>
             ))}
           </div>
-          {project.description && (
+          {projectData.description && (
             <div className="mt-3 bg-surface-700 rounded-lg p-3 border border-surface-600">
               <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Descripción</div>
-              <div className="text-slate-200 text-sm leading-relaxed">{project.description}</div>
+              <div className="text-slate-200 text-sm leading-relaxed">{projectData.description}</div>
             </div>
           )}
         </div>
@@ -226,7 +284,10 @@ export default function ProjectDetail() {
       {/* Task form modal */}
       <Modal open={taskMod} onClose={() => setTaskMod(false)}
         title={taskForm.id ? 'Editar Tarea' : 'Nueva Tarea'}>
-        <form onSubmit={e => { e.preventDefault(); saveTask.mutate({ ...taskForm, project_id: id }); }}
+        <form onSubmit={e => { 
+          e.preventDefault(); 
+          saveTask.mutate({ ...taskForm, project_id: id, assigned_to: taskForm.assigned_to || null }); 
+        }}
           className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <Field label="Nombre" required>
@@ -274,8 +335,8 @@ export default function ProjectDetail() {
           </div>
           <div className="col-span-2 flex justify-end gap-2 pt-1">
             <button type="button" className="btn-ghost" onClick={() => setTaskMod(false)}>Cancelar</button>
-            <button type="submit" className="btn-primary">
-              {taskForm.id ? 'Actualizar' : 'Crear Tarea'}
+            <button type="submit" className="btn-primary" disabled={saveTask.isPending}>
+              {saveTask.isPending ? 'Guardando...' : (taskForm.id ? 'Actualizar' : 'Crear Tarea')}
             </button>
           </div>
         </form>
@@ -285,9 +346,10 @@ export default function ProjectDetail() {
       <Modal open={mbMod} onClose={() => setMbMod(false)} title="Agregar Miembro" size="sm">
         <AddMemberForm
           allUsers={allUsers}
-          existing={project.members || []}
+          existing={projectData.members || []}
           onAdd={d => addMember.mutate(d)}
           onClose={() => setMbMod(false)}
+          isLoading={addMember.isPending}
         />
       </Modal>
 
@@ -298,9 +360,10 @@ export default function ProjectDetail() {
   );
 }
 
-function AddMemberForm({ allUsers, existing, onAdd, onClose }) {
+function AddMemberForm({ allUsers, existing, onAdd, onClose, isLoading }) {
   const [userId, setUserId]   = useState('');
   const [role,   setRole]     = useState('Member');
+  
   const existIds = existing.map(m => m.id);
   const available = allUsers.filter(u => !existIds.includes(u.id));
 
@@ -320,9 +383,9 @@ function AddMemberForm({ allUsers, existing, onAdd, onClose }) {
       </Field>
       <div className="flex justify-end gap-2">
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
-        <button className="btn-primary" disabled={!userId}
+        <button className="btn-primary" disabled={!userId || isLoading}
           onClick={() => { onAdd({ user_id: userId, project_role: role }); }}>
-          Agregar
+          {isLoading ? 'Agregando...' : 'Agregar'}
         </button>
       </div>
     </div>
