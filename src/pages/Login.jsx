@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext'; // <-- Usamos el AuthContext unificado
 
 export default function Login() {
   const [email, setEmail] = useState('admin@grupoicaa.com');
@@ -11,27 +11,23 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
+  const { login } = useAuth(); // Sacamos la función login de tu contexto
 
   async function submit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    // Usamos la función de login que ya configuramos en AuthContext
+    const res = await login(email, password);
 
-    if (error) {
-      setError(error.message);
+    if (!res.ok) {
+      setError(res.error);
       setLoading(false);
       return;
     }
 
-    // Guardar sesión
-    localStorage.setItem('icaa_token', data.session.access_token);
-    localStorage.setItem('icaa_user', JSON.stringify(data.user));
-
+    // Si todo salió bien, empujamos al usuario al Dashboard INMEDIATAMENTE
     setLoading(false);
     navigate('/');
   }
