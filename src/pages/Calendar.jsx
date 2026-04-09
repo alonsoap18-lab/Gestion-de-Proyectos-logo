@@ -25,10 +25,10 @@ export default function CalendarPage() {
   const [filterProj, setFilterProj] = useState('');
   const [filterType, setFilterType] = useState('');
 
-  // 1. LEER EVENTOS Y PROYECTOS DESDE SUPABASE DIRECTAMENTE
+  // 1. LEER EVENTOS (ahora apuntando a calendar_events) Y PROYECTOS
   const { data: events   = [], isLoading } = useQuery({ 
     queryKey:['calendar'], 
-    queryFn: async () => { const { data, error } = await supabase.from('calendar').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { const { data, error } = await supabase.from('calendar_events').select('*'); if(error) throw error; return data; }
   });
   const { data: projects = [] }            = useQuery({ 
     queryKey:['projects'], 
@@ -39,11 +39,11 @@ export default function CalendarPage() {
   const save = useMutation({
     mutationFn: async (d) => {
       if (d.id) {
-        const { data, error } = await supabase.from('calendar').update(d).eq('id', d.id).select();
+        const { data, error } = await supabase.from('calendar_events').update(d).eq('id', d.id).select();
         if (error) throw error;
         return data;
       } else {
-        const { data, error } = await supabase.from('calendar').insert([d]).select();
+        const { data, error } = await supabase.from('calendar_events').insert([d]).select();
         if (error) throw error;
         return data;
       }
@@ -54,7 +54,7 @@ export default function CalendarPage() {
   // 3. ELIMINAR EVENTO
   const del = useMutation({
     mutationFn: async (id) => {
-      const { error } = await supabase.from('calendar').delete().eq('id', id);
+      const { error } = await supabase.from('calendar_events').delete().eq('id', id);
       if (error) throw error;
       return true;
     },
@@ -244,7 +244,6 @@ export default function CalendarPage() {
       {/* Event form modal */}
       <Modal open={modal} onClose={() => setModal(false)}
         title={form.id ? 'Editar Evento' : 'Nuevo Evento'}>
-        {/* AQUÍ ESTÁ LA CORRECCIÓN: le decimos que si project_id está vacío, envíe null */}
         <form onSubmit={e => { e.preventDefault(); save.mutate({ ...form, project_id: form.project_id || null }); }} className="space-y-4">
           <Field label="Título" required>
             <input className="input" value={form.title}
