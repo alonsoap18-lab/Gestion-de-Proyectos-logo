@@ -1,7 +1,7 @@
 // src/pages/Machinery.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Modal, Confirm, Badge, Spinner, Empty, Field, StatCard } from '../components/ui';
 import { Plus, Pencil, Trash2, Wrench, Search } from 'lucide-react';
 
@@ -16,16 +16,46 @@ export default function Machinery() {
   const [fSt,    setFSt]    = useState('');
   const [search, setSearch] = useState('');
 
-  const { data: machinery = [], isLoading } = useQuery({ queryKey:['machinery'], queryFn: () => api.get('/machinery').then(r=>r.data) });
-  const { data: projects  = [] }            = useQuery({ queryKey:['projects'],  queryFn: () => api.get('/projects').then(r=>r.data) });
+  // 1. LEER MAQUINARIA Y PROYECTOS DESDE SUPABASE
+  const { data: rawMachinery = [], isLoading } = useQuery({ 
+    queryKey:['machinery'], 
+    queryFn: async () => { const { data, error } = await supabase.from('machinery').select('*'); if(error) throw error; return data; }
+  });
+  const { data: projects  = [] }            = useQuery({ 
+    queryKey:['projects'],  
+    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+  });
 
+  // 2. CREAR O ACTUALIZAR
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/machinery/${form.id}`, d) : api.post('/machinery', d),
+    mutationFn: async (d) => {
+      if (d.id) {
+        const { data, error } = await supabase.from('machinery').update(d).eq('id', d.id).select();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase.from('machinery').insert([d]).select();
+        if (error) throw error;
+        return data;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['machinery']); setModal(false); },
   });
+
+  // 3. ELIMINAR
   const del = useMutation({
-    mutationFn: id => api.delete(`/machinery/${id}`),
-    onSuccess:  () => qc.invalidateQueries(['machinery']),
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('machinery').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
+    onSuccess:  () => { qc.invalidateQueries(['machinery']); setDelTgt(null); },
+  });
+
+  // Procesamos para cruzar datos y aplicar filtros
+  const machinery = rawMachinery.map(m => {
+    const p = projects.find(proj => proj.id === m.project_id);
+    return { ...m, project_name: p ? p.name : null };
   });
 
   const shown = machinery.filter(m => {
