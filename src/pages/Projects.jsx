@@ -166,7 +166,16 @@ export default function Projects() {
       {/* Form modal */}
       <Modal open={modal} onClose={() => setModal(false)}
         title={form.id ? 'Editar Proyecto' : 'Nuevo Proyecto'} size="lg">
-        <form onSubmit={e => { e.preventDefault(); save.mutate({ ...form, duration_weeks: parseInt(form.duration_weeks)||12, budget: parseFloat(form.budget)||0 }); }}
+        {/* AQUÍ ESTÁ LA CORRECCIÓN: Si no hay fecha, manda null para no romper Supabase */}
+        <form onSubmit={e => { 
+            e.preventDefault(); 
+            save.mutate({ 
+              ...form, 
+              duration_weeks: parseInt(form.duration_weeks) || 12, 
+              budget: parseFloat(form.budget) || 0,
+              start_date: form.start_date || null 
+            }); 
+          }}
           className="grid grid-cols-2 gap-4">
 
           <div className="col-span-2">
