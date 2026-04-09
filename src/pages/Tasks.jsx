@@ -1,7 +1,7 @@
 // src/pages/Tasks.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
+import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
 import { Plus, Pencil, Trash2, CheckSquare, Filter } from 'lucide-react';
 
@@ -16,34 +16,60 @@ export default function Tasks() {
   const [fst,     setFst]     = useState('');
   const [fpr,     setFpr]     = useState('');
 
-  // 1. LEER DATOS DESDE SUPABASE (Tareas, Proyectos y Usuarios)
+  // 1. LEER DATOS DESDE SUPABASE
   const { data: tasks    = [], isLoading } = useQuery({ 
     queryKey:['tasks'],    
-    queryFn: async () => { const { data, error } = await supabase.from('tasks').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('tasks').select('*'); 
+      if(error) { alert("Error cargando tareas: " + error.message); throw error; }
+      return data; 
+    }
   });
   const { data: projects = [] }            = useQuery({ 
     queryKey:['projects'], 
-    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('projects').select('*'); 
+      if(error) throw error; 
+      return data; 
+    }
   });
   const { data: users    = [] }            = useQuery({ 
     queryKey:['users'],    
-    queryFn: async () => { const { data, error } = await supabase.from('users').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('users').select('*'); 
+      if(error) throw error; 
+      return data; 
+    }
   });
 
   // 2. CREAR O ACTUALIZAR TAREA EN SUPABASE
   const save = useMutation({
     mutationFn: async (d) => {
+      // MAGIA AQUÍ: Limpiamos los datos extra (como project_name) y protegemos los campos vacíos
+      const dataToSave = {
+        name: d.name,
+        project_id: d.project_id,
+        assigned_to: d.assigned_to || null, // Evita que un texto vacío rompa Supabase
+        start_week: d.start_week,
+        end_week: d.end_week,
+        status: d.status,
+        progress: d.progress,
+        priority: d.priority,
+        description: d.description || null
+      };
+
       if (d.id) {
-        const { data, error } = await supabase.from('tasks').update(d).eq('id', d.id).select();
+        const { data, error } = await supabase.from('tasks').update(dataToSave).eq('id', d.id).select();
         if (error) throw error;
         return data;
       } else {
-        const { data, error } = await supabase.from('tasks').insert([d]).select();
+        const { data, error } = await supabase.from('tasks').insert([dataToSave]).select();
         if (error) throw error;
         return data;
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setModal(false); },
+    onError: (error) => alert(`Error al guardar la tarea: ${error.message}`) // Alarma activada
   });
 
   // 3. ELIMINAR TAREA EN SUPABASE
@@ -54,6 +80,7 @@ export default function Tasks() {
       return true;
     },
     onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setDelTgt(null); },
+    onError: (error) => alert(`Error al eliminar: ${error.message}`)
   });
 
   // Procesamiento de datos para la vista
@@ -63,7 +90,7 @@ export default function Tasks() {
     if (fpr && t.priority   !== fpr)   return false;
     return true;
   }).map(t => {
-    // Enlazamos manualmente el nombre del proyecto y usuario
+    // Enlazamos manualmente el nombre del proyecto y usuario solo para mostrarlos
     const p = projects.find(proj => proj.id === t.project_id);
     const u = users.find(user => user.id === t.assigned_to);
     return {
@@ -241,7 +268,7 @@ export default function Tasks() {
           <div className="col-span-2 flex justify-end gap-2 pt-1">
             <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
             <button type="submit" className="btn-primary" disabled={save.isPending}>
-              {form.id ? 'Actualizar' : 'Crear Tarea'}
+              {save.isPending ? 'Guardando...' : (form.id ? 'Actualizar' : 'Crear Tarea')}
             </button>
           </div>
         </form>
