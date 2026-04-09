@@ -1,7 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Progress, Badge, Spinner } from '../components/ui';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -17,8 +17,6 @@ const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
 );
 
-const CHART_BLUE   = '#2d4fa0';
-const CHART_BLUE_L = '#4a7fd4';
 const TASK_COLORS  = {
   Pending:       '#64748b',
   Started:       '#4a7fd4',
@@ -51,44 +49,84 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
   );
 }
 
-// 1. CREAMOS UNA FUNCIÓN SEGURA QUE NO SE CONGELA
-const fetchDashboardSeguro = async () => {
-  try {
-    const res = await api.get('/dashboard');
-    return res.data;
-  } catch (error) {
-    console.warn("⚠️ No se encontró la API del backend. Cargando datos de prueba...");
-    // Devolvemos datos falsos temporalmente para que la app arranque
+// 1. CARGAMOS LOS DATOS REALES DE SUPABASE
+const fetchRealDashboard = async () => {
+  // Consultamos todas las tablas al mismo tiempo para mayor velocidad
+  const [
+    { data: pData },
+    { data: tData },
+    { data: uData },
+    { data: mData }
+  ] = await Promise.all([
+    supabase.from('projects').select('*'),
+    supabase.from('tasks').select('*'),
+    supabase.from('users').select('*'),
+    supabase.from('machinery').select('*')
+  ]);
+
+  const projectsData = pData || [];
+  const tasksData = tData || [];
+  const usersData = uData || [];
+  const machineryData = mData || [];
+
+  // Construimos las estadísticas
+  const projects = {
+    total: projectsData.length,
+    active: projectsData.filter(p => p.status === 'Active').length,
+    planning: projectsData.filter(p => p.status === 'Planning').length,
+    delayed: projectsData.filter(p => p.status === 'Delayed').length,
+    completed: projectsData.filter(p => p.status === 'Completed').length,
+  };
+
+  const tasks = {
+    total: tasksData.length,
+    pending: tasksData.filter(t => t.status === 'Pending').length,
+    started: tasksData.filter(t => t.status === 'Started').length,
+    inProgress: tasksData.filter(t => t.status === 'In Progress').length,
+    completed: tasksData.filter(t => t.status === 'Completed').length,
+  };
+
+  const projectProgress = projectsData.map(p => ({
+    id: p.id,
+    name: p.name,
+    progress: p.progress || 0,
+    status: p.status
+  }));
+
+  // Tomamos las últimas 5 tareas agregadas y les ponemos el nombre de su proyecto
+  const recentTasks = tasksData.slice(-5).reverse().map(t => {
+    const p = projectsData.find(proj => proj.id === t.project_id);
+    const u = usersData.find(user => user.id === t.assigned_to);
     return {
-      projects: { total: 2, active: 1, planning: 1, delayed: 0, completed: 0 },
-      tasks: { total: 10, pending: 4, started: 2, inProgress: 3, completed: 1 },
-      people: { total: 5 },
-      machinery: { Available: 2 },
-      projectProgress: [
-        { id: 1, name: 'Casa Las Nubes', progress: 35, status: 'In Progress' },
-        { id: 2, name: 'Nya Park', progress: 10, status: 'Planning' }
-      ],
-      recentTasks: []
+      ...t,
+      project_name: p ? p.name : 'Sin proyecto',
+      assigned_name: u ? u.name : 'Sin asignar'
     };
-  }
+  });
+
+  return {
+    projects,
+    tasks,
+    people: { total: usersData.length },
+    machinery: { Available: machineryData.filter(m => m.status === 'Available' || m.status === 'Disponible').length },
+    projectProgress,
+    recentTasks
+  };
 };
 
 export default function Dashboard() {
   const { user } = useAuth();
   
-  // 2. USAMOS LA FUNCIÓN SEGURA AQUÍ
   const { data: stats, isLoading } = useQuery({
     queryKey: ['dashboard'],
-    queryFn: fetchDashboardSeguro,
-    retry: false, // Le decimos que no intente infinitamente si falla
+    queryFn: fetchRealDashboard,
   });
 
   if (isLoading) return <Spinner/>;
   
-  // 3. EVITAMOS QUE SE ROMPA SI AÚN ASÍ FALLA
   if (!stats) return <div className="p-10 text-white">Error al cargar datos del Dashboard.</div>;
 
-  const { projects, tasks, people, machinery, projectProgress, tasksByProject, recentTasks } = stats;
+  const { projects, tasks, people, machinery, projectProgress, recentTasks } = stats;
 
   const taskPieData = [
     { name:'Pendientes',  value: tasks.pending,    color: TASK_COLORS.Pending      },
