@@ -29,12 +29,15 @@ export default function Machinery() {
   // 2. CREAR O ACTUALIZAR
   const save = useMutation({
     mutationFn: async (d) => {
+      // AQUÍ ESTÁ LA PROTECCIÓN: Forzar a null si el project_id viene vacío
+      const dataToSave = { ...d, project_id: d.project_id || null };
+
       if (d.id) {
-        const { data, error } = await supabase.from('machinery').update(d).eq('id', d.id).select();
+        const { data, error } = await supabase.from('machinery').update(dataToSave).eq('id', d.id).select();
         if (error) throw error;
         return data;
       } else {
-        const { data, error } = await supabase.from('machinery').insert([d]).select();
+        const { data, error } = await supabase.from('machinery').insert([dataToSave]).select();
         if (error) throw error;
         return data;
       }
