@@ -1,7 +1,7 @@
 // src/pages/Tasks.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
 import { Plus, Pencil, Trash2, CheckSquare, Filter } from 'lucide-react';
 
@@ -16,29 +16,66 @@ export default function Tasks() {
   const [fst,     setFst]     = useState('');
   const [fpr,     setFpr]     = useState('');
 
-  const { data: tasks    = [], isLoading } = useQuery({ queryKey:['tasks'],    queryFn: () => api.get('/tasks').then(r => r.data) });
-  const { data: projects = [] }            = useQuery({ queryKey:['projects'], queryFn: () => api.get('/projects').then(r => r.data) });
-  const { data: users    = [] }            = useQuery({ queryKey:['users'],    queryFn: () => api.get('/users').then(r => r.data) });
+  // 1. LEER DATOS DESDE SUPABASE (Tareas, Proyectos y Usuarios)
+  const { data: tasks    = [], isLoading } = useQuery({ 
+    queryKey:['tasks'],    
+    queryFn: async () => { const { data, error } = await supabase.from('tasks').select('*'); if(error) throw error; return data; }
+  });
+  const { data: projects = [] }            = useQuery({ 
+    queryKey:['projects'], 
+    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+  });
+  const { data: users    = [] }            = useQuery({ 
+    queryKey:['users'],    
+    queryFn: async () => { const { data, error } = await supabase.from('users').select('*'); if(error) throw error; return data; }
+  });
 
+  // 2. CREAR O ACTUALIZAR TAREA EN SUPABASE
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/tasks/${form.id}`, d) : api.post('/tasks', d),
+    mutationFn: async (d) => {
+      if (d.id) {
+        const { data, error } = await supabase.from('tasks').update(d).eq('id', d.id).select();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase.from('tasks').insert([d]).select();
+        if (error) throw error;
+        return data;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setModal(false); },
   });
+
+  // 3. ELIMINAR TAREA EN SUPABASE
   const del = useMutation({
-    mutationFn: id => api.delete(`/tasks/${id}`),
-    onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); },
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('tasks').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
+    onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setDelTgt(null); },
   });
 
+  // Procesamiento de datos para la vista
   const filtered = tasks.filter(t => {
     if (fpj && t.project_id !== fpj)   return false;
-    if (fst && t.status    !== fst)    return false;
-    if (fpr && t.priority  !== fpr)    return false;
+    if (fst && t.status     !== fst)   return false;
+    if (fpr && t.priority   !== fpr)   return false;
     return true;
+  }).map(t => {
+    // Enlazamos manualmente el nombre del proyecto y usuario
+    const p = projects.find(proj => proj.id === t.project_id);
+    const u = users.find(user => user.id === t.assigned_to);
+    return {
+      ...t,
+      project_name: p ? p.name : 'Sin proyecto',
+      assigned_name: u ? u.name : '—'
+    };
   });
 
   // Group by project
   const grouped = filtered.reduce((acc, t) => {
-    const key = t.project_name || 'Sin proyecto';
+    const key = t.project_name;
     (acc[key] = acc[key] || []).push(t);
     return acc;
   }, {});
