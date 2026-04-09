@@ -16,16 +16,49 @@ export default function Materials() {
   const [fProj,  setFProj]  = useState('');
   const [search, setSearch] = useState('');
 
-  const { data: materials = [], isLoading } = useQuery({ queryKey:['materials'], queryFn: () => api.get('/materials').then(r=>r.data) });
-  const { data: projects  = [] }            = useQuery({ queryKey:['projects'],  queryFn: () => api.get('/projects').then(r=>r.data) });
+  // 1. LEER MATERIALES Y PROYECTOS DESDE SUPABASE DIRECTAMENTE
+  const { data: rawMaterials = [], isLoading } = useQuery({ 
+    queryKey:['materials'], 
+    queryFn: async () => { const { data, error } = await supabase.from('materials').select('*'); if(error) throw error; return data; }
+  });
+  const { data: projects  = [] } = useQuery({ 
+    queryKey:['projects'],  
+    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+  });
 
+  // 2. CREAR O ACTUALIZAR MATERIAL
   const save = useMutation({
-    mutationFn: d => form.id ? api.put(`/materials/${form.id}`, d) : api.post('/materials', d),
+    mutationFn: async (d) => {
+      // AQUÍ ESTÁ EL TRUCO DE LA MAGIA: Forzar a null si el project_id viene vacío
+      const dataToSave = { ...d, project_id: d.project_id || null };
+      
+      if (d.id) {
+        const { data, error } = await supabase.from('materials').update(dataToSave).eq('id', d.id).select();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase.from('materials').insert([dataToSave]).select();
+        if (error) throw error;
+        return data;
+      }
+    },
     onSuccess:  () => { qc.invalidateQueries(['materials']); setModal(false); },
   });
+
+  // 3. ELIMINAR MATERIAL
   const del = useMutation({
-    mutationFn: id => api.delete(`/materials/${id}`),
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('materials').delete().eq('id', id);
+      if (error) throw error;
+      return true;
+    },
     onSuccess:  () => qc.invalidateQueries(['materials']),
+  });
+
+  // Procesamos para cruzar datos y aplicar filtros
+  const materials = rawMaterials.map(m => {
+    const p = projects.find(proj => proj.id === m.project_id);
+    return { ...m, project_name: p ? p.name : null };
   });
 
   const shown = materials.filter(m => {
@@ -155,7 +188,7 @@ export default function Materials() {
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Material' : 'Nuevo Material'} size="lg">
-        <form onSubmit={e => { e.preventDefault(); save.mutate({ ...form, project_id: form.project_id||null }); }}
+        <form onSubmit={e => { e.preventDefault(); save.mutate(form); }}
           className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <Field label="Nombre del Material" required>
