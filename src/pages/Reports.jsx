@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Spinner, Badge } from '../components/ui';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
