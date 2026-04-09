@@ -1,9 +1,9 @@
 // src/pages/Machinery.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
+import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Spinner, Empty, Field, StatCard } from '../components/ui';
-import { Plus, Pencil, Trash2, Wrench, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Wrench, Search, Download } from 'lucide-react';
 
 const BLANK = { name:'', type:'', brand:'', model:'', serial_number:'', status:'Available', project_id:'', notes:'' };
 const STATUSES = ['Available','In Use','Maintenance'];
@@ -15,22 +15,43 @@ export default function Machinery() {
   const [delTgt, setDelTgt] = useState(null);
   const [fSt,    setFSt]    = useState('');
   const [search, setSearch] = useState('');
+  
+  // NUEVO: Estado para el filtro de proyecto
+  const [fProj,  setFProj]  = useState(''); 
 
   // 1. LEER MAQUINARIA Y PROYECTOS DESDE SUPABASE
-  const { data: rawMachinery = [], isLoading } = useQuery({ 
+  const { data: rawMachinery = [], isLoading: loadingMachinery } = useQuery({ 
     queryKey:['machinery'], 
-    queryFn: async () => { const { data, error } = await supabase.from('machinery').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('machinery').select('*'); 
+      if(error) { alert("Error cargando maquinaria: " + error.message); throw error; }
+      return data; 
+    }
   });
-  const { data: projects  = [] }            = useQuery({ 
+  
+  const { data: projects  = [], isLoading: loadingProjects } = useQuery({ 
     queryKey:['projects'],  
-    queryFn: async () => { const { data, error } = await supabase.from('projects').select('*'); if(error) throw error; return data; }
+    queryFn: async () => { 
+      const { data, error } = await supabase.from('projects').select('*'); 
+      if(error) { alert("Error cargando proyectos: " + error.message); throw error; }
+      return data; 
+    }
   });
 
   // 2. CREAR O ACTUALIZAR
   const save = useMutation({
     mutationFn: async (d) => {
-      // AQUÍ ESTÁ LA PROTECCIÓN: Forzar a null si el project_id viene vacío
-      const dataToSave = { ...d, project_id: d.project_id || null };
+      // Limpiamos los datos y forzamos a null si el project_id viene vacío
+      const dataToSave = { 
+        name: d.name,
+        type: d.type || null,
+        brand: d.brand || null,
+        model: d.model || null,
+        serial_number: d.serial_number || null,
+        status: d.status,
+        notes: d.notes || null,
+        project_id: d.project_id || null 
+      };
 
       if (d.id) {
         const { data, error } = await supabase.from('machinery').update(dataToSave).eq('id', d.id).select();
@@ -43,6 +64,7 @@ export default function Machinery() {
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['machinery']); setModal(false); },
+    onError: (error) => alert(`Error al guardar en Supabase: ${error.message}`)
   });
 
   // 3. ELIMINAR
@@ -53,6 +75,7 @@ export default function Machinery() {
       return true;
     },
     onSuccess:  () => { qc.invalidateQueries(['machinery']); setDelTgt(null); },
+    onError: (error) => alert(`Error al eliminar: ${error.message}`)
   });
 
   // Procesamos para cruzar datos y aplicar filtros
@@ -63,28 +86,65 @@ export default function Machinery() {
 
   const shown = machinery.filter(m => {
     if (fSt && m.status !== fSt) return false;
+    if (fProj && m.project_id !== fProj) return false; // Filtro de proyecto
     if (search && !m.name.toLowerCase().includes(search.toLowerCase()) && !m.type?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
   const counts = {
-    Available:   machinery.filter(m => m.status==='Available').length,
-    'In Use':    machinery.filter(m => m.status==='In Use').length,
-    Maintenance: machinery.filter(m => m.status==='Maintenance').length,
+    Available:   shown.filter(m => m.status==='Available').length,
+    'In Use':    shown.filter(m => m.status==='In Use').length,
+    Maintenance: shown.filter(m => m.status==='Maintenance').length,
   };
 
-  if (isLoading) return <Spinner/>;
+  // NUEVO: Función para exportar a Excel (CSV)
+  const exportDataToCSV = () => {
+    if (shown.length === 0) return alert("No hay datos para exportar.");
+
+    const headers = ["Equipo", "Tipo", "Marca", "Modelo", "No_Serie", "Estado", "Proyecto_Asignado", "Notas"];
+    
+    const rows = shown.map(m => {
+      const notasLimpias = m.notes ? m.notes.replace(/\n/g, ' ') : '';
+      return [
+        `"${m.name || ''}"`,
+        `"${m.type || ''}"`,
+        `"${m.brand || ''}"`,
+        `"${m.model || ''}"`,
+        `"${m.serial_number || ''}"`,
+        `"${m.status || ''}"`,
+        `"${m.project_name || 'Sin Asignar'}"`,
+        `"${notasLimpias}"`
+      ].join(',');
+    });
+
+    const csvContent = headers.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = fProj ? `maquinaria_proyecto_filtrado.csv` : `inventario_maquinaria.csv`;
+    link.click();
+  };
+
+  if (loadingMachinery || loadingProjects) return <Spinner/>;
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">Maquinaria</h1>
-          <p className="text-slate-400 text-sm mt-0.5">{machinery.length} equipo(s) registrado(s)</p>
+          <p className="text-slate-400 text-sm mt-0.5">{shown.length} equipo(s) en la vista actual</p>
         </div>
-        <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
-          <Plus size={15}/> Nuevo Equipo
-        </button>
+        
+        <div className="flex gap-2">
+          {/* Botón de exportación */}
+          <button className="btn-ghost text-xs border border-green-600/30 text-green-400 hover:bg-green-500/10" onClick={exportDataToCSV} title="Descargar lo que ves en pantalla">
+            <Download size={14} className="mr-1"/> Exportar Excel
+          </button>
+          
+          <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+            <Plus size={15}/> Nuevo Equipo
+          </button>
+        </div>
       </div>
 
       {/* Status cards */}
@@ -104,10 +164,24 @@ export default function Machinery() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative mb-4 max-w-xs">
-        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"/>
-        <input className="input pl-8" placeholder="Buscar equipo…" value={search} onChange={e => setSearch(e.target.value)}/>
+      {/* Filtros de búsqueda y proyecto */}
+      <div className="flex flex-wrap gap-2 mb-4 items-center bg-surface-800 p-2 rounded-xl border border-surface-600">
+        <div className="relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"/>
+          <input className="input pl-8 max-w-[220px]" placeholder="Buscar equipo o tipo..." value={search} onChange={e => setSearch(e.target.value)}/>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-slate-400 uppercase ml-2">Filtrar por Proyecto:</span>
+          <select className="input min-w-[200px] border-brand-500/30" value={fProj} onChange={e => setFProj(e.target.value)}>
+            <option value="">🏗️ Todas las ubicaciones</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+
+        {(fProj || search || fSt) && (
+          <button className="btn-ghost text-xs ml-auto" onClick={() => { setFProj(''); setSearch(''); setFSt(''); }}>Limpiar Filtros</button>
+        )}
       </div>
 
       <div className="table-wrap">
@@ -150,7 +224,7 @@ export default function Machinery() {
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Equipo' : 'Nuevo Equipo'} size="lg">
-        <form onSubmit={e => { e.preventDefault(); save.mutate({ ...form, project_id: form.project_id||null }); }}
+        <form onSubmit={e => { e.preventDefault(); save.mutate(form); }}
           className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <Field label="Nombre del Equipo" required>
@@ -188,7 +262,7 @@ export default function Machinery() {
           <div className="col-span-2 flex justify-end gap-2 pt-1">
             <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
             <button type="submit" className="btn-primary" disabled={save.isPending}>
-              {form.id ? 'Actualizar' : 'Agregar Equipo'}
+              {save.isPending ? 'Guardando...' : (form.id ? 'Actualizar' : 'Agregar Equipo')}
             </button>
           </div>
         </form>
