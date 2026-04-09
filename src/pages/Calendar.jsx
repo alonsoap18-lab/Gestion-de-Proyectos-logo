@@ -6,7 +6,7 @@ import {
   startOfWeek, endOfWeek, isSameMonth, isToday, isSameDay, parseISO, addMonths, subMonths
 } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
+import { supabase } from '../lib/supabase';
 import { Modal, Field, Spinner } from '../components/ui';
 import { ChevronLeft, ChevronRight, Plus, X, Calendar as CalIcon } from 'lucide-react';
 
@@ -244,7 +244,8 @@ export default function CalendarPage() {
       {/* Event form modal */}
       <Modal open={modal} onClose={() => setModal(false)}
         title={form.id ? 'Editar Evento' : 'Nuevo Evento'}>
-        <form onSubmit={e => { e.preventDefault(); save.mutate(form); }} className="space-y-4">
+        {/* AQUÍ ESTÁ LA CORRECCIÓN: le decimos que si project_id está vacío, envíe null */}
+        <form onSubmit={e => { e.preventDefault(); save.mutate({ ...form, project_id: form.project_id || null }); }} className="space-y-4">
           <Field label="Título" required>
             <input className="input" value={form.title}
               onChange={e => setForm({...form, title: e.target.value})} required placeholder="Nombre del evento…"/>
