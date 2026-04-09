@@ -2,18 +2,20 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabase'; // Conexión directa a Supabase
+import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../components/ui';
 import GanttChart from '../components/gantt/GanttChart';
-import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign, Download } from 'lucide-react';
 import { format } from 'date-fns';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
 const TABS = ['Gantt','Tareas','Equipo','Información'];
 
 export default function ProjectDetail() {
-  const { id }   = useParams(); // Obtiene el ID del proyecto desde la URL
+  const { id }   = useParams();
   const navigate = useNavigate();
   const qc       = useQueryClient();
   
@@ -22,22 +24,18 @@ export default function ProjectDetail() {
   const [taskForm, setTaskForm] = useState(BLANK_TASK);
   const [delTask,  setDelTask]  = useState(null);
   const [mbMod,    setMbMod]    = useState(false);
+  const [isExporting, setIsExporting] = useState(false); // Estado para el botón de PDF
 
-  // 1. CARGAMOS DATOS DEL PROYECTO, SUS TAREAS Y MIEMBROS DESDE SUPABASE
+  // 1. CARGAMOS DATOS DEL PROYECTO
   const { data: projectData, isLoading: isLoadingProject } = useQuery({
     queryKey: ['project', id],
     queryFn:  async () => {
-      // Pedimos la info principal del proyecto
       const { data: pData, error: pError } = await supabase.from('projects').select('*').eq('id', id).single();
       if (pError) throw pError;
       
-      // Pedimos las tareas del proyecto
       const { data: tData } = await supabase.from('tasks').select('*').eq('project_id', id);
-      
-      // Pedimos los miembros asignados
       const { data: mData } = await supabase.from('project_members').select('*, users(*)').eq('project_id', id);
       
-      // Armamos un objeto completo como el que esperaba tu código original
       return {
         ...pData,
         tasks: tData || [],
@@ -60,7 +58,7 @@ export default function ProjectDetail() {
     },
   });
 
-  // 2. MUTACIONES PARA TAREAS
+  // MUTACIONES (Tareas y Equipo)
   const saveTask = useMutation({
     mutationFn: async (d) => {
       if (taskForm.id) {
@@ -90,7 +88,6 @@ export default function ProjectDetail() {
     onSuccess:  () => qc.invalidateQueries(['project', id]),
   });
 
-  // 3. MUTACIONES PARA EQUIPO
   const addMember = useMutation({
     mutationFn: async (d) => {
       const { error } = await supabase.from('project_members').insert([{ project_id: id, ...d }]);
@@ -106,6 +103,39 @@ export default function ProjectDetail() {
     },
     onSuccess:  () => qc.invalidateQueries(['project', id]),
   });
+
+  // --- FUNCIÓN PARA EXPORTAR GANTT A PDF ---
+  const exportGanttToPDF = async () => {
+    const ganttElement = document.getElementById('gantt-export-area');
+    if (!ganttElement) return;
+
+    setIsExporting(true);
+    try {
+      // Tomamos una "foto" del diagrama (forzando fondo oscuro para que se vea bien)
+      const canvas = await html2canvas(ganttElement, { 
+        backgroundColor: '#0f172a', // Color de fondo slate-900
+        scale: 2 // Mayor calidad de imagen
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      
+      // Creamos el PDF en formato horizontal (Landscape), tamaño A4
+      const pdf = new jsPDF('landscape', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      // Agregamos la imagen al PDF
+      pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
+      
+      // Descargamos el archivo con el nombre del proyecto
+      pdf.save(`Gantt_${projectData.name.replace(/\s+/g, '_')}.pdf`);
+    } catch (error) {
+      alert("Hubo un error al generar el PDF.");
+      console.error(error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   if (isLoadingProject) return <Spinner/>;
   if (!projectData)  return <div className="text-slate-400 p-8">Proyecto no encontrado.</div>;
@@ -129,7 +159,7 @@ export default function ProjectDetail() {
             {projectData.location && <span className="flex items-center gap-1"><MapPin size={10}/>{projectData.location}</span>}
             {projectData.start_date && <span className="flex items-center gap-1"><Calendar size={10}/>{format(new Date(projectData.start_date),'dd/MM/yyyy')}</span>}
             <span className="flex items-center gap-1"><Clock size={10}/>{totalWeeks} semanas</span>
-            {projectData.budget > 0 && <span className="flex items-center gap-1"><DollarSign size={10}/>Budget: ${Number(projectData.budget).toLocaleString()}</span>}
+            {projectData.budget > 0 && <span className="flex items-center gap-1"><DollarSign size={10}/>Presupuesto: ${Number(projectData.budget).toLocaleString()}</span>}
           </div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -152,20 +182,37 @@ export default function ProjectDetail() {
       {/* ── GANTT ─────────────────────────────────────────── */}
       {tab === 'Gantt' && (
         <div>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-4">
             <h3 className="section-title text-sm">
               Diagrama Gantt · {totalWeeks} semanas ·{' '}
               {projectData.start_date && format(new Date(projectData.start_date), 'dd/MM/yyyy')}
             </h3>
-            <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
+            <div className="flex gap-2">
+              <button 
+                className="btn-ghost border border-green-600/30 text-green-400 hover:bg-green-500/10" 
+                onClick={exportGanttToPDF}
+                disabled={isExporting}
+              >
+                {isExporting ? <Spinner size="sm" /> : <Download size={14} className="mr-1"/>}
+                {isExporting ? 'Generando...' : 'Descargar PDF'}
+              </button>
+              <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
+            </div>
           </div>
-          <GanttChart
-            project={projectData}
-            tasks={projectData.tasks || []}
-            onEditTask={openEditTask}
-            onDeleteTask={t => setDelTask(t)}
-            onMoveTask={(tid, sw, ew) => moveTask.mutate({ tid, sw, ew })}
-          />
+          
+          {/* Contenedor con ID para que html2canvas sepa qué parte de la pantalla capturar */}
+          <div id="gantt-export-area" className="p-2 rounded-xl bg-surface-900">
+            <h2 className="text-white font-display font-bold text-lg mb-2 pl-2 border-l-4 border-brand-500">
+              Cronograma: {projectData.name}
+            </h2>
+            <GanttChart
+              project={projectData}
+              tasks={projectData.tasks || []}
+              onEditTask={openEditTask}
+              onDeleteTask={t => setDelTask(t)}
+              onMoveTask={(tid, sw, ew) => moveTask.mutate({ tid, sw, ew })}
+            />
+          </div>
         </div>
       )}
 
@@ -221,7 +268,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* ── TEAM ──────────────────────────────────────────── */}
+      {/* ── EQUIPO E INFORMACIÓN (iguales) ── */}
       {tab === 'Equipo' && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
@@ -250,7 +297,6 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* ── INFO ──────────────────────────────────────────── */}
       {tab === 'Información' && (
         <div className="card p-6">
           <h3 className="section-title text-sm mb-4">Información del Proyecto</h3>
@@ -281,7 +327,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* Task form modal */}
+      {/* Modal Tareas */}
       <Modal open={taskMod} onClose={() => setTaskMod(false)}
         title={taskForm.id ? 'Editar Tarea' : 'Nueva Tarea'}>
         <form onSubmit={e => { 
@@ -342,14 +388,12 @@ export default function ProjectDetail() {
         </form>
       </Modal>
 
-      {/* Add member modal */}
       <Modal open={mbMod} onClose={() => setMbMod(false)} title="Agregar Miembro" size="sm">
         <AddMemberForm
           allUsers={allUsers}
           existing={projectData.members || []}
           onAdd={d => addMember.mutate(d)}
           onClose={() => setMbMod(false)}
-          isLoading={addMember.isPending}
         />
       </Modal>
 
@@ -360,7 +404,7 @@ export default function ProjectDetail() {
   );
 }
 
-function AddMemberForm({ allUsers, existing, onAdd, onClose, isLoading }) {
+function AddMemberForm({ allUsers, existing, onAdd, onClose }) {
   const [userId, setUserId]   = useState('');
   const [role,   setRole]     = useState('Member');
   
@@ -383,9 +427,9 @@ function AddMemberForm({ allUsers, existing, onAdd, onClose, isLoading }) {
       </Field>
       <div className="flex justify-end gap-2">
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
-        <button className="btn-primary" disabled={!userId || isLoading}
+        <button className="btn-primary" disabled={!userId}
           onClick={() => { onAdd({ user_id: userId, project_role: role }); }}>
-          {isLoading ? 'Agregando...' : 'Agregar'}
+          Agregar
         </button>
       </div>
     </div>
