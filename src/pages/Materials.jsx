@@ -1,7 +1,7 @@
 // src/pages/Materials.jsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../lib/api';
+import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
 import { Modal, Confirm, Spinner, Empty, Field, Progress } from '../components/ui';
 import { Plus, Pencil, Trash2, Package, Search, Filter } from 'lucide-react';
 
