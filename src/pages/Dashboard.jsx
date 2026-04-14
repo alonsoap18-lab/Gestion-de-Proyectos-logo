@@ -1,7 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
+import { supabase } from '../lib/supabase';
 import { Progress, Badge, Spinner } from '../components/ui';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -49,27 +49,18 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
   );
 }
 
-// 1. CARGAMOS LOS DATOS REALES DE SUPABASE
-const fetchRealDashboard = async () => {
-  // Consultamos todas las tablas al mismo tiempo para mayor velocidad
-  const [
-    { data: pData },
-    { data: tData },
-    { data: uData },
-    { data: mData }
-  ] = await Promise.all([
-    supabase.from('projects').select('*'),
-    supabase.from('tasks').select('*'),
-    supabase.from('users').select('*'),
-    supabase.from('machinery').select('*')
-  ]);
+export default function Dashboard() {
+  const { user } = useAuth();
+  
+  // Usamos useQuery individualmente para cada tabla para que el Tiempo Real las actualice por separado
+  const { data: projectsData = [], isLoading: loadP } = useQuery({ queryKey: ['projects'],  queryFn: async () => { const { data } = await supabase.from('projects').select('*'); return data || []; }});
+  const { data: tasksData = [],    isLoading: loadT } = useQuery({ queryKey: ['tasks'],     queryFn: async () => { const { data } = await supabase.from('tasks').select('*'); return data || []; }});
+  const { data: usersData = [],    isLoading: loadU } = useQuery({ queryKey: ['users'],     queryFn: async () => { const { data } = await supabase.from('users').select('*'); return data || []; }});
+  const { data: machineryData = [],isLoading: loadM } = useQuery({ queryKey: ['machinery'], queryFn: async () => { const { data } = await supabase.from('machinery').select('*'); return data || []; }});
 
-  const projectsData = pData || [];
-  const tasksData = tData || [];
-  const usersData = uData || [];
-  const machineryData = mData || [];
+  if (loadP || loadT || loadU || loadM) return <Spinner/>;
 
-  // Construimos las estadísticas
+  // Cálculos reactivos basados en la información en vivo
   const projects = {
     total: projectsData.length,
     active: projectsData.filter(p => p.status === 'Active').length,
@@ -93,7 +84,6 @@ const fetchRealDashboard = async () => {
     status: p.status
   }));
 
-  // Tomamos las últimas 5 tareas agregadas y les ponemos el nombre de su proyecto
   const recentTasks = tasksData.slice(-5).reverse().map(t => {
     const p = projectsData.find(proj => proj.id === t.project_id);
     const u = usersData.find(user => user.id === t.assigned_to);
@@ -104,35 +94,14 @@ const fetchRealDashboard = async () => {
     };
   });
 
-  return {
-    projects,
-    tasks,
-    people: { total: usersData.length },
-    machinery: { Available: machineryData.filter(m => m.status === 'Available' || m.status === 'Disponible').length },
-    projectProgress,
-    recentTasks
-  };
-};
-
-export default function Dashboard() {
-  const { user } = useAuth();
-  
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: fetchRealDashboard,
-  });
-
-  if (isLoading) return <Spinner/>;
-  
-  if (!stats) return <div className="p-10 text-white">Error al cargar datos del Dashboard.</div>;
-
-  const { projects, tasks, people, machinery, projectProgress, recentTasks } = stats;
+  const people = { total: usersData.length };
+  const machinery = { Available: machineryData.filter(m => m.status === 'Available' || m.status === 'Disponible').length };
 
   const taskPieData = [
-    { name:'Pendientes',  value: tasks.pending,    color: TASK_COLORS.Pending      },
-    { name:'Iniciadas',   value: tasks.started,    color: TASK_COLORS.Started      },
+    { name:'Pendientes',  value: tasks.pending,    color: TASK_COLORS.Pending     },
+    { name:'Iniciadas',   value: tasks.started,    color: TASK_COLORS.Started     },
     { name:'En Progreso', value: tasks.inProgress, color: TASK_COLORS['In Progress']},
-    { name:'Completadas', value: tasks.completed,  color: TASK_COLORS.Completed    },
+    { name:'Completadas', value: tasks.completed,  color: TASK_COLORS.Completed   },
   ].filter(d => d.value > 0);
 
   const barData = projectProgress.map(p => ({
@@ -154,7 +123,7 @@ export default function Dashboard() {
         <div>
           <h1 className="page-title">Dashboard</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            Bienvenido, <span className="text-white font-semibold">{user?.name}</span> — Grupo ICAA Constructora
+            Bienvenido, <span className="text-white font-semibold">{user?.name || 'Administrador ICAA'}</span> — Grupo ICAA Constructora
           </p>
         </div>
       </div>
