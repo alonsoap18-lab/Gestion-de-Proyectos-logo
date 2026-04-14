@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase'; // <-- AHORA LLAMA A SUPABASE DIRECTO
-import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field, StatCard } from '../components/ui';
+import { supabase } from '../lib/supabase';
+import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
 import { Plus, Pencil, Trash2, FolderKanban, MapPin, Calendar, Clock, Users, ChevronRight, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -40,7 +40,7 @@ export default function Projects() {
         return data;
       }
     },
-    onSuccess:  () => { qc.invalidateQueries(['projects']); setModal(false); },
+    onSuccess:  () => { qc.invalidateQueries(['projects']); qc.invalidateQueries(['dashboard']); setModal(false); },
   });
 
   // 3. ELIMINAR PROYECTO
@@ -50,7 +50,7 @@ export default function Projects() {
       if (error) throw error;
       return true;
     },
-    onSuccess:  () => qc.invalidateQueries(['projects']),
+    onSuccess:  () => { qc.invalidateQueries(['projects']); qc.invalidateQueries(['dashboard']); setDelTgt(null); },
   });
 
   const shown = filter ? projects.filter(p => p.status === filter) : projects;
@@ -137,15 +137,12 @@ export default function Projects() {
               )}
             </div>
 
+            {/* AQUÍ ESTÁ LA MAGIA DEL PROGRESO */}
             <Progress value={p.progress || 0} size="sm"/>
 
             <div className="flex items-center justify-between mt-3">
               <Badge status={p.status}/>
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                {p.taskStats && <>
-                  <span>{p.taskStats.total} tareas</span>
-                  <span className="text-green-400">{p.taskStats.completed}✓</span>
-                </>}
                 <ChevronRight size={13} className="text-slate-600 group-hover:text-brand-500 transition-colors"/>
               </div>
             </div>
@@ -166,7 +163,6 @@ export default function Projects() {
       {/* Form modal */}
       <Modal open={modal} onClose={() => setModal(false)}
         title={form.id ? 'Editar Proyecto' : 'Nuevo Proyecto'} size="lg">
-        {/* AQUÍ ESTÁ LA CORRECCIÓN: Si no hay fecha, manda null para no romper Supabase */}
         <form onSubmit={e => { 
             e.preventDefault(); 
             save.mutate({ 
