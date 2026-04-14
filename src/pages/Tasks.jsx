@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
-import { Plus, Pencil, Trash2, CheckSquare, Filter } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckSquare, Filter, User } from 'lucide-react';
 
 const BLANK = { name:'', project_id:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
@@ -12,9 +12,12 @@ export default function Tasks() {
   const [modal,   setModal]   = useState(false);
   const [form,    setForm]    = useState(BLANK);
   const [delTgt,  setDelTgt]  = useState(null);
+  
+  // Estados de los filtros
   const [fpj,     setFpj]     = useState('');
   const [fst,     setFst]     = useState('');
   const [fpr,     setFpr]     = useState('');
+  const [fusr,    setFusr]    = useState(''); // <-- NUEVO: Filtro de Usuario
 
   // 1. LEER DATOS DESDE SUPABASE
   const { data: tasks    = [], isLoading } = useQuery({ 
@@ -45,11 +48,11 @@ export default function Tasks() {
   // 2. CREAR O ACTUALIZAR TAREA EN SUPABASE
   const save = useMutation({
     mutationFn: async (d) => {
-      // MAGIA AQUÍ: Limpiamos los datos extra (como project_name) y protegemos los campos vacíos
+      // Limpiamos los datos extra para evitar el error 400
       const dataToSave = {
         name: d.name,
         project_id: d.project_id,
-        assigned_to: d.assigned_to || null, // Evita que un texto vacío rompa Supabase
+        assigned_to: d.assigned_to || null,
         start_week: d.start_week,
         end_week: d.end_week,
         status: d.status,
@@ -69,7 +72,7 @@ export default function Tasks() {
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setModal(false); },
-    onError: (error) => alert(`Error al guardar la tarea: ${error.message}`) // Alarma activada
+    onError: (error) => alert(`Error al guardar la tarea: ${error.message}`)
   });
 
   // 3. ELIMINAR TAREA EN SUPABASE
@@ -85,12 +88,12 @@ export default function Tasks() {
 
   // Procesamiento de datos para la vista
   const filtered = tasks.filter(t => {
-    if (fpj && t.project_id !== fpj)   return false;
-    if (fst && t.status     !== fst)   return false;
-    if (fpr && t.priority   !== fpr)   return false;
+    if (fpj  && t.project_id  !== fpj)  return false;
+    if (fst  && t.status      !== fst)  return false;
+    if (fpr  && t.priority    !== fpr)  return false;
+    if (fusr && t.assigned_to !== fusr) return false; // <-- Lógica del filtro de usuario
     return true;
   }).map(t => {
-    // Enlazamos manualmente el nombre del proyecto y usuario solo para mostrarlos
     const p = projects.find(proj => proj.id === t.project_id);
     const u = users.find(user => user.id === t.assigned_to);
     return {
@@ -117,7 +120,7 @@ export default function Tasks() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Tareas</h1>
-          <p className="text-slate-400 text-sm mt-0.5">{filtered.length} tarea(s)</p>
+          <p className="text-slate-400 text-sm mt-0.5">{filtered.length} tarea(s) visibles</p>
         </div>
         <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
           <Plus size={15}/> Nueva Tarea
@@ -127,7 +130,7 @@ export default function Tasks() {
       {/* KPI pills */}
       <div className="grid grid-cols-4 gap-3 mb-5">
         {STATUSES.map(s => {
-          const cnt = tasks.filter(t => t.status === s).length;
+          const cnt = filtered.filter(t => t.status === s).length;
           return (
             <div key={s}
               className={`card p-3 cursor-pointer transition-all hover:border-surface-400
@@ -141,22 +144,33 @@ export default function Tasks() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-5 items-center">
-        <Filter size={13} className="text-slate-500"/>
-        <select className="input max-w-[200px]" value={fpj} onChange={e => setFpj(e.target.value)}>
-          <option value="">Todos los proyectos</option>
+      <div className="flex flex-wrap gap-2 mb-5 items-center bg-surface-800 p-2 rounded-xl border border-surface-600">
+        <Filter size={15} className="text-slate-400 ml-2"/>
+        
+        <select className="input max-w-[200px] border-none bg-surface-700" value={fpj} onChange={e => setFpj(e.target.value)}>
+          <option value="">🏢 Todos los proyectos</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <select className="input max-w-[160px]" value={fst} onChange={e => setFst(e.target.value)}>
-          <option value="">Todos los estados</option>
+
+        {/* CAJA DESPLEGABLE DE USUARIO */}
+        <select className="input max-w-[180px] border-none bg-surface-700" value={fusr} onChange={e => setFusr(e.target.value)}>
+          <option value="">👤 Todos los usuarios</option>
+          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+
+        <select className="input max-w-[160px] border-none bg-surface-700" value={fst} onChange={e => setFst(e.target.value)}>
+          <option value="">📋 Todos los estados</option>
           {STATUSES.map(s => <option key={s}>{s}</option>)}
         </select>
-        <select className="input max-w-[150px]" value={fpr} onChange={e => setFpr(e.target.value)}>
-          <option value="">Toda prioridad</option>
+        
+        <select className="input max-w-[150px] border-none bg-surface-700" value={fpr} onChange={e => setFpr(e.target.value)}>
+          <option value="">⚡ Toda prioridad</option>
           <option>High</option><option>Medium</option><option>Low</option>
         </select>
-        {(fpj||fst||fpr) && (
-          <button className="btn-ghost text-xs" onClick={() => { setFpj(''); setFst(''); setFpr(''); }}>
+
+        {(fpj||fst||fpr||fusr) && (
+          <button className="btn-ghost text-xs ml-auto text-brand-400 hover:text-brand-300" 
+            onClick={() => { setFpj(''); setFst(''); setFpr(''); setFusr(''); }}>
             Limpiar filtros
           </button>
         )}
@@ -186,7 +200,9 @@ export default function Tasks() {
               {projTasks.map(t => (
                 <tr key={t.id} className="tr-hover">
                   <td className="td font-medium text-slate-200">{t.name}</td>
-                  <td className="td text-slate-400 text-xs">{t.assigned_name || '—'}</td>
+                  <td className="td text-slate-400 text-xs flex items-center gap-1 mt-1.5">
+                    <User size={12} className="text-slate-500"/> {t.assigned_name || '—'}
+                  </td>
                   <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
                   <td className="td"><Badge status={t.status}/></td>
                   <td className="td"><Progress value={t.progress} size="sm"/></td>
