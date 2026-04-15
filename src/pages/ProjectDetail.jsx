@@ -8,7 +8,7 @@ import GanttChart from '../components/gantt/GanttChart';
 import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable'; // <-- Añadido para el Gantt corporativo
+import autoTable from 'jspdf-autotable';
 
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
@@ -105,14 +105,21 @@ export default function ProjectDetail() {
   });
 
   // =======================================================================
-  // NUEVA FUNCIÓN PARA EXPORTAR GANTT A PDF CORPORATIVO
+  // FUNCIÓN PARA EXPORTAR GANTT A PDF CORPORATIVO (CON BARRAS VERDES)
   // =======================================================================
   const exportGanttToPDF = async () => {
     setIsExporting(true);
     try {
       const doc = new jsPDF('landscape');
+      
+      // Colores Tareas Normales
       const azulICAA = [45, 79, 160]; 
       const azulGanttBarra = [74, 127, 212]; 
+      
+      // Colores Tareas Completadas
+      const verdeFuerte = [34, 197, 94]; // text-green-500
+      const verdeClaro = [187, 247, 208]; // bg-green-200
+
       const totalWeeks = projectData.duration_weeks || 12;
 
       // 1. Ordenar tareas cronológicamente
@@ -167,7 +174,7 @@ export default function ProjectDetail() {
         startY: 35, 
         theme: 'plain', 
         styles: { 
-          fontSize: 6, // Letra pequeña para que quepan muchas semanas
+          fontSize: 6, 
           cellPadding: 1,
           lineColor: [226, 232, 240], 
           lineWidth: 0.1,
@@ -189,7 +196,6 @@ export default function ProjectDetail() {
 
             if (currentWeekColumn >= taskData.start_week && currentWeekColumn <= taskData.end_week) {
               const paddingVertical = data.cell.height * 0.2; 
-              // Quitamos el padding horizontal para que las semanas se unan visualmente como una sola barra
               const paddingHorizontal = 0; 
 
               const barX = data.cell.x + paddingHorizontal;
@@ -197,14 +203,21 @@ export default function ProjectDetail() {
               const barWidth = data.cell.width - (paddingHorizontal * 2);
               const barHeight = data.cell.height - (paddingVertical * 2);
 
+              // REVISIÓN DE ESTADO: ¿Completada o en proceso?
+              const isCompleted = taskData.status === 'Completed';
+              
+              // Elegir la paleta de colores según el estado
+              const colorFondo = isCompleted ? verdeClaro : azulGanttBarra;
+              const colorProgreso = isCompleted ? verdeFuerte : azulICAA;
+
               // Dibujar barra clara (Semana completa)
-              doc.setFillColor(azulGanttBarra[0], azulGanttBarra[1], azulGanttBarra[2]);
+              doc.setFillColor(colorFondo[0], colorFondo[1], colorFondo[2]);
               doc.rect(barX, barY, barWidth, barHeight, 'F'); 
 
               // Dibujar barra oscura (Progreso real sobre esa semana)
               if (taskData.progress > 0) {
                 const progressWidth = barWidth * (taskData.progress / 100);
-                doc.setFillColor(azulICAA[0], azulICAA[1], azulICAA[2]); 
+                doc.setFillColor(colorProgreso[0], colorProgreso[1], colorProgreso[2]); 
                 doc.rect(barX, barY, progressWidth, barHeight, 'F');
               }
             }
