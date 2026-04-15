@@ -83,6 +83,14 @@ export default function Reports() {
         assigned_name: u ? u.name : '—',
         clean_description: t.description ? t.description.replace(/\n/g, ' ') : 'Sin descripción'
       };
+    })
+    .sort((a, b) => {
+      // 1. Ordenar primero por la semana de inicio (de menor a mayor)
+      if (a.start_week !== b.start_week) {
+        return a.start_week - b.start_week;
+      }
+      // 2. Si empiezan en la misma semana, desempatar por la semana de fin
+      return a.end_week - b.end_week;
     });
 
   // ==========================================
@@ -313,7 +321,7 @@ export default function Reports() {
                   {label:'Asignado', key:'assigned_name'}, 
                   {label:'Estado', key:'status'}, 
                   {label:'Progreso', key:'progress'}, 
-                  {label:'Prioridad', key:'priority'}
+                  {label:'Semanas', key:'start_week'}
                 ])}>
                 <Download size={14} className="mr-1"/> Exportar Excel
               </button>
@@ -346,7 +354,9 @@ export default function Reports() {
                   <tr key={t.id} className="tr-hover border-b border-surface-600/30">
                     <td className="td font-semibold text-slate-200">
                       <div>{t.name}</div>
-                      <div className="text-[10px] text-slate-500 uppercase mt-0.5">Prioridad: {t.priority}</div>
+                      <div className="text-[10px] text-slate-500 uppercase mt-0.5 font-mono">
+                        S{t.start_week} - S{t.end_week}
+                      </div>
                     </td>
                     <td className="td text-slate-400 text-xs">
                       <div className="line-clamp-2" title={t.description}>{t.description || '—'}</div>
