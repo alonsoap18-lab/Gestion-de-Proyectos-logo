@@ -136,14 +136,14 @@ export default function Reports() {
       }
 
       // 3. Preparar los datos para la tabla
-      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Prioridad", "Descripción"]];
+      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Semanas", "Descripción"]];
       const tableData = filteredTasks.map(t => [
         t.name,
         t.project_name,
         t.assigned_name,
         t.status,
         `${t.progress || 0}%`,
-        t.priority,
+        `S${t.start_week} - S${t.end_week}`, // <-- AQUÍ PONEMOS LAS SEMANAS
         t.clean_description
       ]);
 
