@@ -8,8 +8,8 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { BarChart3, CheckSquare, Users, Download, Filter, FileText } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable'; // <-- LA NUEVA MAGIA PARA TABLAS
 
 const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
@@ -23,11 +23,11 @@ const TABS = [
 
 const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress':'#f97316', Completed:'#22c55e' };
 
-// Función genérica para exportar a CSV
+// Función genérica para exportar a CSV (Excel)
 function exportCSV(filename, rows, cols) {
   const header = cols.map(c => `"${c.label}"`).join(',');
   const body   = rows.map(r => cols.map(c => `"${(r[c.key]||'').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob   = new Blob(['\uFEFF' + header + '\n' + body], { type: 'text/csv;charset=utf-8;' }); // \uFEFF para Excel UTF-8
+  const blob   = new Blob(['\uFEFF' + header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
 }
@@ -68,7 +68,6 @@ export default function Reports() {
   ].filter(d => d.value > 0);
 
   // 4. PROCESAMIENTO TAREAS (Pestaña Tareas)
-  // Cruzar y filtrar datos
   const filteredTasks = tasks
     .filter(t => {
       if (taskFilterProject && t.project_id !== taskFilterProject) return false;
@@ -82,41 +81,116 @@ export default function Reports() {
         ...t, 
         project_name: p ? p.name : '—', 
         assigned_name: u ? u.name : '—',
-        clean_description: t.description ? t.description.replace(/\n/g, ' ') : '—' // Limpiar para CSV
+        clean_description: t.description ? t.description.replace(/\n/g, ' ') : 'Sin descripción'
       };
     });
 
-  // Función para exportar la tabla visible a PDF
+  // ==========================================
+  // EXPORTAR A PDF CORPORATIVO (TEXTO Y TABLAS)
+  // ==========================================
   const exportTasksToPDF = async () => {
-    const tableElement = document.getElementById('tasks-report-table');
-    if (!tableElement) return;
-
     setIsExportingPDF(true);
     try {
-      const canvas = await html2canvas(tableElement, { 
-        backgroundColor: '#0f172a',
-        scale: 2
+      // Formato apaisado (horizontal) para que quepa bien la descripción
+      const doc = new jsPDF('landscape');
+
+      // 1. Intentar cargar el logo de la empresa
+      const logoImg = new Image();
+      logoImg.src = '/icaa-logo.png'; // Asegúrate de que este sea el nombre exacto de tu logo en la carpeta public
+
+      await new Promise((resolve) => {
+        logoImg.onload = resolve;
+        logoImg.onerror = resolve; // Continúa aunque el logo falle
       });
+
+      // 2. Dibujar el Encabezado
+      if (logoImg.width > 0) {
+        doc.addImage(logoImg, 'PNG', 14, 10, 25, 25); // x, y, width, height
+      }
+
+      doc.setFontSize(20);
+      doc.setTextColor(45, 79, 160); // Azul ICAA (brand-500)
+      doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 45 : 14, 20);
       
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('landscape', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      doc.setFontSize(12);
+      doc.setTextColor(100, 116, 139); // Gris (slate-500)
+      doc.text("Reporte Detallado de Tareas", logoImg.width > 0 ? 45 : 14, 27);
       
-      // Agregar título al PDF
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(16);
-      pdf.text("Reporte de Tareas - Grupo ICAA Constructora", 10, 15);
-      
-      // Ajustar posición 'y' de la imagen para que no tape el título
-      pdf.addImage(imgData, 'PNG', 0, 25, pdfWidth, pdfHeight);
-      
-      let filename = 'Reporte_Tareas';
+      const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
+      doc.setFontSize(10);
+      doc.text(`Fecha de generación: ${fechaActual}`, logoImg.width > 0 ? 45 : 14, 33);
+
+      // Mostrar filtros activos en el reporte si existen
+      let subtituloFiltros = "";
+      if (taskFilterProject) {
+        const pName = projects.find(x => x.id === taskFilterProject)?.name;
+        subtituloFiltros += `Proyecto: ${pName}   `;
+      }
+      if (taskFilterUser) {
+        const uName = users.find(x => x.id === taskFilterUser)?.name;
+        subtituloFiltros += `Usuario: ${uName}`;
+      }
+      if (subtituloFiltros) {
+        doc.setTextColor(249, 115, 22); // Naranja sutil para destacar el filtro
+        doc.text(`Filtros aplicados -> ${subtituloFiltros}`, 14, 42);
+      }
+
+      // 3. Preparar los datos para la tabla
+      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Prioridad", "Descripción"]];
+      const tableData = filteredTasks.map(t => [
+        t.name,
+        t.project_name,
+        t.assigned_name,
+        t.status,
+        `${t.progress || 0}%`,
+        t.priority,
+        t.clean_description
+      ]);
+
+      // 4. Dibujar la tabla auto-ajustable
+      autoTable(doc, {
+        head: tableHeaders,
+        body: tableData,
+        startY: subtituloFiltros ? 48 : 42,
+        theme: 'striped',
+        headStyles: { 
+          fillColor: [45, 79, 160], // Azul corporativo
+          textColor: [255, 255, 255],
+          fontStyle: 'bold'
+        },
+        alternateRowStyles: {
+          fillColor: [245, 247, 250] // Gris muy claro para leer mejor
+        },
+        styles: { 
+          fontSize: 9, 
+          cellPadding: 4,
+          textColor: [51, 65, 85] // Slate-700
+        },
+        columnStyles: {
+          0: { cellWidth: 40 }, // Tarea
+          1: { cellWidth: 35 }, // Proyecto
+          2: { cellWidth: 35 }, // Asignado
+          3: { cellWidth: 25 }, // Estado
+          4: { cellWidth: 20 }, // Progreso
+          5: { cellWidth: 20 }, // Prioridad
+          6: { cellWidth: 'auto' } // Descripción toma todo el espacio sobrante
+        },
+        // Pie de página automático en cada hoja
+        didDrawPage: function (data) {
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
+        }
+      });
+
+      // 5. Descargar el archivo
+      let filename = 'Reporte_Tareas_ICAA';
       if (taskFilterProject) {
         const p = projects.find(x => x.id === taskFilterProject);
         if (p) filename += `_${p.name.replace(/\s+/g, '_')}`;
       }
-      pdf.save(`${filename}.pdf`);
+      doc.save(`${filename}.pdf`);
+
     } catch (error) {
       alert("Hubo un error al generar el PDF.");
       console.error(error);
@@ -247,14 +321,14 @@ export default function Reports() {
               <button className="btn-ghost text-xs border border-red-600/30 text-red-400 hover:bg-red-500/10" 
                 onClick={exportTasksToPDF} disabled={isExportingPDF}>
                 {isExportingPDF ? <Spinner size="sm"/> : <FileText size={14} className="mr-1"/>}
-                {isExportingPDF ? 'Generando...' : 'Exportar PDF'}
+                {isExportingPDF ? 'Generando...' : 'Exportar a PDF'}
               </button>
             </div>
           </div>
 
           <p className="text-xs text-slate-400 px-1">Mostrando {filteredTasks.length} tareas</p>
 
-          {/* Tabla de Tareas para Exportar */}
+          {/* Tabla de Tareas Visible */}
           <div className="table-wrap overflow-x-auto" id="tasks-report-table">
             <table className="w-full min-w-[900px]">
               <thead>
