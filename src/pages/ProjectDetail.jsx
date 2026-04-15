@@ -7,8 +7,8 @@ import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../comp
 import GanttChart from '../components/gantt/GanttChart';
 import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign, Download } from 'lucide-react';
 import { format } from 'date-fns';
-import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable'; // <-- Añadido para el Gantt corporativo
 
 const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
@@ -19,12 +19,12 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const qc       = useQueryClient();
   
-  const [tab,      setTab]      = useState('Gantt');
-  const [taskMod,  setTaskMod]  = useState(false);
-  const [taskForm, setTaskForm] = useState(BLANK_TASK);
-  const [delTask,  setDelTask]  = useState(null);
-  const [mbMod,    setMbMod]    = useState(false);
-  const [isExporting, setIsExporting] = useState(false); // Estado para el botón de PDF
+  const [tab,        setTab]        = useState('Gantt');
+  const [taskMod,    setTaskMod]    = useState(false);
+  const [taskForm,   setTaskForm]   = useState(BLANK_TASK);
+  const [delTask,    setDelTask]    = useState(null);
+  const [mbMod,      setMbMod]      = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // 1. CARGAMOS DATOS DEL PROYECTO
   const { data: projectData, isLoading: isLoadingProject } = useQuery({
@@ -104,33 +104,123 @@ export default function ProjectDetail() {
     onSuccess:  () => qc.invalidateQueries(['project', id]),
   });
 
-  // --- FUNCIÓN PARA EXPORTAR GANTT A PDF ---
+  // =======================================================================
+  // NUEVA FUNCIÓN PARA EXPORTAR GANTT A PDF CORPORATIVO
+  // =======================================================================
   const exportGanttToPDF = async () => {
-    const ganttElement = document.getElementById('gantt-export-area');
-    if (!ganttElement) return;
-
     setIsExporting(true);
     try {
-      // Tomamos una "foto" del diagrama (forzando fondo oscuro para que se vea bien)
-      const canvas = await html2canvas(ganttElement, { 
-        backgroundColor: '#0f172a', // Color de fondo slate-900
-        scale: 2 // Mayor calidad de imagen
+      const doc = new jsPDF('landscape');
+      const azulICAA = [45, 79, 160]; 
+      const azulGanttBarra = [74, 127, 212]; 
+      const totalWeeks = projectData.duration_weeks || 12;
+
+      // 1. Ordenar tareas cronológicamente
+      const sortedTasks = [...(projectData.tasks || [])].sort((a, b) => {
+        if (a.start_week !== b.start_week) return a.start_week - b.start_week;
+        return a.end_week - b.end_week;
       });
+
+      // 2. Cargar Logo
+      const logoImg = new Image();
+      logoImg.src = '/icaa-logo.png';
+      await new Promise((resolve) => {
+        logoImg.onload = resolve;
+        logoImg.onerror = resolve; 
+      });
+
+      // 3. Encabezado
+      if (logoImg.width > 0) {
+        doc.addImage(logoImg, 'PNG', 14, 10, 20, 20);
+      }
+
+      doc.setFontSize(18);
+      doc.setTextColor(azulICAA[0], azulICAA[1], azulICAA[2]);
+      doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 38 : 14, 18);
       
-      const imgData = canvas.toDataURL('image/png');
+      doc.setFontSize(12);
+      doc.setTextColor(100, 116, 139); 
+      doc.text("Cronograma de Obra (Diagrama Gantt)", logoImg.width > 0 ? 38 : 14, 24);
       
-      // Creamos el PDF en formato horizontal (Landscape), tamaño A4
-      const pdf = new jsPDF('landscape', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      
-      // Agregamos la imagen al PDF
-      pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
-      
-      // Descargamos el archivo con el nombre del proyecto
-      pdf.save(`Gantt_${projectData.name.replace(/\s+/g, '_')}.pdf`);
+      doc.setFontSize(10);
+      doc.text(`Proyecto: ${projectData.name} - Duración: ${totalWeeks} semanas`, logoImg.width > 0 ? 38 : 14, 29);
+
+      const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
+      doc.text(`Generado: ${fechaActual}`, 240, 29); 
+
+      // 4. Configurar Columnas
+      const colHeaders = ["TAREA"]; 
+      for (let i = 1; i <= totalWeeks; i++) colHeaders.push(`S${i}`);
+      const head = [colHeaders];
+
+      // 5. Configurar Filas
+      const body = sortedTasks.map(task => {
+        const row = [task.name]; 
+        for (let i = 1; i <= totalWeeks; i++) row.push(""); 
+        return row;
+      });
+
+      // 6. Dibujar la Tabla y las Barras
+      autoTable(doc, {
+        head: head,
+        body: body,
+        startY: 35, 
+        theme: 'plain', 
+        styles: { 
+          fontSize: 6, // Letra pequeña para que quepan muchas semanas
+          cellPadding: 1,
+          lineColor: [226, 232, 240], 
+          lineWidth: 0.1,
+        },
+        headStyles: { 
+          fillColor: [248, 250, 252], 
+          textColor: [100, 116, 139], 
+          fontStyle: 'bold',
+          halign: 'center' 
+        },
+        columnStyles: {
+          0: { cellWidth: 50, fontStyle: 'bold', textColor: [51, 65, 85], halign: 'left' } 
+        },
+        // MAGIA: Pintar las celdas para hacer las barras
+        didDrawCell: function (data) {
+          if (data.section === 'body' && data.column.index > 0) {
+            const taskData = sortedTasks[data.row.index];
+            const currentWeekColumn = data.column.index; 
+
+            if (currentWeekColumn >= taskData.start_week && currentWeekColumn <= taskData.end_week) {
+              const paddingVertical = data.cell.height * 0.2; 
+              // Quitamos el padding horizontal para que las semanas se unan visualmente como una sola barra
+              const paddingHorizontal = 0; 
+
+              const barX = data.cell.x + paddingHorizontal;
+              const barY = data.cell.y + paddingVertical;
+              const barWidth = data.cell.width - (paddingHorizontal * 2);
+              const barHeight = data.cell.height - (paddingVertical * 2);
+
+              // Dibujar barra clara (Semana completa)
+              doc.setFillColor(azulGanttBarra[0], azulGanttBarra[1], azulGanttBarra[2]);
+              doc.rect(barX, barY, barWidth, barHeight, 'F'); 
+
+              // Dibujar barra oscura (Progreso real sobre esa semana)
+              if (taskData.progress > 0) {
+                const progressWidth = barWidth * (taskData.progress / 100);
+                doc.setFillColor(azulICAA[0], azulICAA[1], azulICAA[2]); 
+                doc.rect(barX, barY, progressWidth, barHeight, 'F');
+              }
+            }
+          }
+        },
+        didDrawPage: function (data) {
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
+          doc.text("Grupo ICAA Constructora - Confidencial", 200, doc.internal.pageSize.height - 10);
+        }
+      });
+
+      doc.save(`Gantt_${projectData.name.replace(/\s+/g, '_')}_ICAA.pdf`);
     } catch (error) {
-      alert("Hubo un error al generar el PDF.");
+      alert("Hubo un error al generar el PDF del Gantt.");
       console.error(error);
     } finally {
       setIsExporting(false);
@@ -189,7 +279,7 @@ export default function ProjectDetail() {
             </h3>
             <div className="flex gap-2">
               <button 
-                className="btn-ghost border border-green-600/30 text-green-400 hover:bg-green-500/10" 
+                className="btn-ghost border border-red-600/30 text-red-400 hover:bg-red-500/10" 
                 onClick={exportGanttToPDF}
                 disabled={isExporting}
               >
@@ -200,8 +290,7 @@ export default function ProjectDetail() {
             </div>
           </div>
           
-          {/* Contenedor con ID para que html2canvas sepa qué parte de la pantalla capturar */}
-          <div id="gantt-export-area" className="p-2 rounded-xl bg-surface-900">
+          <div className="p-2 rounded-xl bg-surface-900">
             <h2 className="text-white font-display font-bold text-lg mb-2 pl-2 border-l-4 border-brand-500">
               Cronograma: {projectData.name}
             </h2>
@@ -236,7 +325,10 @@ export default function ProjectDetail() {
               </tr>
             </thead>
             <tbody>
-              {(projectData.tasks || []).map(t => {
+              {([...(projectData.tasks || [])].sort((a,b) => {
+                  if (a.start_week !== b.start_week) return a.start_week - b.start_week;
+                  return a.end_week - b.end_week;
+                })).map(t => {
                 const assignedUser = allUsers.find(u => u.id === t.assigned_to);
                 return (
                   <tr key={t.id} className="tr-hover">
@@ -268,7 +360,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* ── EQUIPO E INFORMACIÓN (iguales) ── */}
+      {/* ── EQUIPO E INFORMACIÓN ── */}
       {tab === 'Equipo' && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
