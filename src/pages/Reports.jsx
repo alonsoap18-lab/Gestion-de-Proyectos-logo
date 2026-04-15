@@ -21,7 +21,7 @@ const TABS = [
   { id:'employees', label:'Empleados',  icon: Users       },
 ];
 
-const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress:'#f97316', Completed:'#22c55e' };
+const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress':'#f97316', Completed:'#22c55e' };
 
 // Función genérica para exportar a CSV
 function exportCSV(filename, rows, cols) {
