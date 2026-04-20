@@ -14,7 +14,7 @@ import Machinery from './pages/Machinery';
 import Materials from './pages/Materials';
 import Proveedores from './pages/Proveedores'; 
 import Users from './pages/Users';
-
+import Profile from './pages/Profile';
 function Private({ children }) {
   const { user } = useAuth();
   return user ? children : <Navigate to="/login" replace />;
