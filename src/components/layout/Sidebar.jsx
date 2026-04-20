@@ -4,11 +4,11 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, FolderKanban, CheckSquare, Users,
   Calendar, BarChart3, Wrench, Package, UserCog,
-  LogOut, ChevronLeft, ChevronRight, Truck
+  LogOut, ChevronLeft, ChevronRight, Truck, UserCircle // <-- Importamos UserCircle para el perfil
 } from 'lucide-react';
 
 const NAV = [
-  { to: '/',          icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/',         icon: LayoutDashboard, label: 'Dashboard'  },
   { to: '/projects',  icon: FolderKanban,    label: 'Proyectos'  },
   { to: '/tasks',     icon: CheckSquare,     label: 'Tareas'     },
   { to: '/employees', icon: Users,           label: 'Empleados'  },
@@ -25,6 +25,7 @@ const ROLE_COLOR = {
   Engineer:   'text-blue-400',
   Supervisor: 'text-purple-400',
   Worker:     'text-slate-400',
+  Observer:   'text-emerald-400', // Le agregamos un color al Observer por si acaso
 };
 
 export default function Sidebar({ collapsed, toggle }) {
@@ -87,15 +88,38 @@ export default function Sidebar({ collapsed, toggle }) {
 
       {/* ── Footer ───────────────────────────────────────── */}
       <div className="border-t border-surface-600 p-2 space-y-1">
-        {!collapsed && (
-          <div className="px-2.5 py-2 rounded-lg bg-surface-700 mb-1 border border-surface-600">
-            <div className="text-xs font-semibold text-slate-200 truncate">{user?.name}</div>
-            <div className={`text-[10px] font-bold uppercase tracking-wider ${ROLE_COLOR[user?.role] || 'text-slate-400'}`}>
-              {user?.role}
+        
+        {/* BOTÓN DE PERFIL DE USUARIO */}
+        <NavLink 
+          to="/profile" 
+          title={collapsed ? "Mi Perfil" : undefined}
+          className={({ isActive }) => `
+            flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-all mb-1 border
+            ${isActive 
+              ? 'bg-surface-600 border-[#2d4fa0]/50 shadow-inner' 
+              : 'bg-surface-700 border-surface-600 hover:bg-surface-600 hover:border-surface-500'}
+          `}
+        >
+          {collapsed ? (
+            // Si está colapsado, mostramos solo un icono de usuario centrado
+            <div className="w-full flex justify-center py-1 text-[#4a7fd4]">
+              <UserCircle size={20} />
             </div>
-          </div>
-        )}
+          ) : (
+            // Si está expandido, mostramos nombre, rol y un iconito discreto
+            <>
+              <div className="flex-1 min-w-0 pr-1">
+                <div className="text-xs font-semibold text-slate-200 truncate">{user?.name}</div>
+                <div className={`text-[10px] font-bold uppercase tracking-wider ${ROLE_COLOR[user?.role] || 'text-slate-400'}`}>
+                  {user?.role}
+                </div>
+              </div>
+              <UserCircle size={16} className="text-slate-400 flex-shrink-0"/>
+            </>
+          )}
+        </NavLink>
 
+        {/* LOGOUT */}
         <button onClick={logout} title="Cerrar sesión"
           className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-400
                      hover:text-red-400 hover:bg-red-500/10 transition-all">
@@ -103,6 +127,7 @@ export default function Sidebar({ collapsed, toggle }) {
           {!collapsed && 'Cerrar sesión'}
         </button>
 
+        {/* TOGGLE EXPANDIR/CONTRAER */}
         <button onClick={toggle}
           className="w-full flex items-center justify-center py-1.5 rounded-lg text-slate-600
                      hover:text-slate-400 hover:bg-surface-700 transition-all">
