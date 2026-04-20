@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import { BarChart3, CheckSquare, Users, Download, Filter, FileText } from 'lucide-react';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable'; // <-- LA NUEVA MAGIA PARA TABLAS
+import autoTable from 'jspdf-autotable';
 
 const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
@@ -23,7 +23,6 @@ const TABS = [
 
 const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress':'#f97316', Completed:'#22c55e' };
 
-// Función genérica para exportar a CSV (Excel)
 function exportCSV(filename, rows, cols) {
   const header = cols.map(c => `"${c.label}"`).join(',');
   const body   = rows.map(r => cols.map(c => `"${(r[c.key]||'').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -35,9 +34,12 @@ function exportCSV(filename, rows, cols) {
 export default function Reports() {
   const [tab, setTab] = useState('projects');
   
-  // Estados para los filtros de tareas
+  // Estados para los filtros de tareas (AHORA SON 4)
   const [taskFilterProject, setTaskFilterProject] = useState('');
   const [taskFilterUser, setTaskFilterUser] = useState('');
+  const [taskFilterStatus, setTaskFilterStatus] = useState(''); // <-- NUEVO
+  const [taskFilterWeek, setTaskFilterWeek] = useState(''); // <-- NUEVO
+  
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   // 1. LEER DATOS
@@ -67,11 +69,23 @@ export default function Reports() {
     { name:'Completadas', value: tasks.filter(t=>t.status==='Completed').length,  color: TASK_COLORS.Completed },
   ].filter(d => d.value > 0);
 
+  // === CALCULAMOS LA SEMANA MÁXIMA PARA EL FILTRO ===
+  const maxWeek = Math.max(...tasks.map(t => t.end_week || 1), 1);
+  const weeksOptions = Array.from({ length: maxWeek }, (_, i) => i + 1);
+
   // 4. PROCESAMIENTO TAREAS (Pestaña Tareas)
   const filteredTasks = tasks
     .filter(t => {
       if (taskFilterProject && t.project_id !== taskFilterProject) return false;
       if (taskFilterUser && t.assigned_to !== taskFilterUser) return false;
+      if (taskFilterStatus && t.status !== taskFilterStatus) return false; // <-- Filtro Estado
+      
+      if (taskFilterWeek) {
+        const targetWeek = parseInt(taskFilterWeek, 10);
+        // Mostrar la tarea si la semana buscada cae DENTRO del rango de la tarea
+        if (targetWeek < t.start_week || targetWeek > t.end_week) return false;
+      }
+      
       return true;
     })
     .map(t => {
@@ -85,50 +99,45 @@ export default function Reports() {
       };
     })
     .sort((a, b) => {
-      // 1. Ordenar primero por la semana de inicio (de menor a mayor)
       if (a.start_week !== b.start_week) {
         return a.start_week - b.start_week;
       }
-      // 2. Si empiezan en la misma semana, desempatar por la semana de fin
       return a.end_week - b.end_week;
     });
 
   // ==========================================
-  // EXPORTAR A PDF CORPORATIVO (TEXTO Y TABLAS)
+  // EXPORTAR A PDF CORPORATIVO
   // ==========================================
   const exportTasksToPDF = async () => {
     setIsExportingPDF(true);
     try {
-      // Formato apaisado (horizontal) para que quepa bien la descripción
       const doc = new jsPDF('landscape');
 
-      // 1. Intentar cargar el logo de la empresa
       const logoImg = new Image();
-      logoImg.src = '/icaa-logo.png'; // Asegúrate de que este sea el nombre exacto de tu logo en la carpeta public
+      logoImg.src = '/icaa-logo.png'; 
 
       await new Promise((resolve) => {
         logoImg.onload = resolve;
-        logoImg.onerror = resolve; // Continúa aunque el logo falle
+        logoImg.onerror = resolve; 
       });
 
-      // 2. Dibujar el Encabezado
       if (logoImg.width > 0) {
-        doc.addImage(logoImg, 'PNG', 14, 10, 25, 25); // x, y, width, height
+        doc.addImage(logoImg, 'PNG', 14, 10, 25, 25);
       }
 
       doc.setFontSize(20);
-      doc.setTextColor(45, 79, 160); // Azul ICAA (brand-500)
+      doc.setTextColor(45, 79, 160);
       doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 45 : 14, 20);
       
       doc.setFontSize(12);
-      doc.setTextColor(100, 116, 139); // Gris (slate-500)
+      doc.setTextColor(100, 116, 139);
       doc.text("Reporte Detallado de Tareas", logoImg.width > 0 ? 45 : 14, 27);
       
       const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
       doc.setFontSize(10);
       doc.text(`Fecha de generación: ${fechaActual}`, logoImg.width > 0 ? 45 : 14, 33);
 
-      // Mostrar filtros activos en el reporte si existen
+      // Mostrar TODOS los filtros activos en el reporte
       let subtituloFiltros = "";
       if (taskFilterProject) {
         const pName = projects.find(x => x.id === taskFilterProject)?.name;
@@ -136,14 +145,20 @@ export default function Reports() {
       }
       if (taskFilterUser) {
         const uName = users.find(x => x.id === taskFilterUser)?.name;
-        subtituloFiltros += `Usuario: ${uName}`;
+        subtituloFiltros += `Usuario: ${uName}   `;
       }
+      if (taskFilterStatus) {
+        subtituloFiltros += `Estado: ${taskFilterStatus}   `;
+      }
+      if (taskFilterWeek) {
+        subtituloFiltros += `Semana: S${taskFilterWeek}`;
+      }
+
       if (subtituloFiltros) {
-        doc.setTextColor(249, 115, 22); // Naranja sutil para destacar el filtro
+        doc.setTextColor(249, 115, 22); 
         doc.text(`Filtros aplicados -> ${subtituloFiltros}`, 14, 42);
       }
 
-      // 3. Preparar los datos para la tabla
       const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Semanas", "Descripción"]];
       const tableData = filteredTasks.map(t => [
         t.name,
@@ -151,39 +166,27 @@ export default function Reports() {
         t.assigned_name,
         t.status,
         `${t.progress || 0}%`,
-        `S${t.start_week} - S${t.end_week}`, // <-- AQUÍ PONEMOS LAS SEMANAS
+        `S${t.start_week} - S${t.end_week}`,
         t.clean_description
       ]);
 
-      // 4. Dibujar la tabla auto-ajustable
       autoTable(doc, {
         head: tableHeaders,
         body: tableData,
         startY: subtituloFiltros ? 48 : 42,
         theme: 'striped',
-        headStyles: { 
-          fillColor: [45, 79, 160], // Azul corporativo
-          textColor: [255, 255, 255],
-          fontStyle: 'bold'
-        },
-        alternateRowStyles: {
-          fillColor: [245, 247, 250] // Gris muy claro para leer mejor
-        },
-        styles: { 
-          fontSize: 9, 
-          cellPadding: 4,
-          textColor: [51, 65, 85] // Slate-700
-        },
+        headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        styles: { fontSize: 9, cellPadding: 4, textColor: [51, 65, 85] },
         columnStyles: {
-          0: { cellWidth: 40 }, // Tarea
-          1: { cellWidth: 35 }, // Proyecto
-          2: { cellWidth: 35 }, // Asignado
-          3: { cellWidth: 25 }, // Estado
-          4: { cellWidth: 20 }, // Progreso
-          5: { cellWidth: 20 }, // Prioridad
-          6: { cellWidth: 'auto' } // Descripción toma todo el espacio sobrante
+          0: { cellWidth: 40 },
+          1: { cellWidth: 35 },
+          2: { cellWidth: 35 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 20 },
+          6: { cellWidth: 'auto' }
         },
-        // Pie de página automático en cada hoja
         didDrawPage: function (data) {
           doc.setFontSize(8);
           doc.setTextColor(150);
@@ -191,7 +194,6 @@ export default function Reports() {
         }
       });
 
-      // 5. Descargar el archivo
       let filename = 'Reporte_Tareas_ICAA';
       if (taskFilterProject) {
         const p = projects.find(x => x.id === taskFilterProject);
@@ -209,7 +211,6 @@ export default function Reports() {
 
   return (
     <div>
-      {/* HEADER */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Reportes y Estadísticas</h1>
@@ -217,7 +218,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
           ['Presupuesto Total', `$${(totalBudget/1000).toFixed(1)}K`, 'text-green-400'],
@@ -232,7 +232,6 @@ export default function Reports() {
         ))}
       </div>
 
-      {/* TABS */}
       <div className="flex gap-2 mb-6 border-b border-surface-600 pb-2">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)}
@@ -287,32 +286,51 @@ export default function Reports() {
       {tab === 'tasks' && (
         <div className="space-y-4">
           
-          {/* Barra de Filtros y Acciones */}
+          {/* BARRA DE FILTROS Y ACCIONES MEJORADA */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-800 p-3 rounded-xl border border-surface-600">
-            <div className="flex items-center gap-3">
-              <Filter size={15} className="text-slate-400 ml-1"/>
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <Filter size={15} className="text-slate-400 ml-1 flex-shrink-0"/>
               
-              <select className="input max-w-[220px] border-none bg-surface-700 text-sm" 
+              <select className="input max-w-[200px] border-none bg-surface-700 text-sm" 
                 value={taskFilterProject} onChange={e => setTaskFilterProject(e.target.value)}>
                 <option value="">🏢 Todos los Proyectos</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
 
-              <select className="input max-w-[200px] border-none bg-surface-700 text-sm" 
+              <select className="input max-w-[180px] border-none bg-surface-700 text-sm" 
                 value={taskFilterUser} onChange={e => setTaskFilterUser(e.target.value)}>
                 <option value="">👤 Todos los Usuarios</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
 
-              {(taskFilterProject || taskFilterUser) && (
-                <button className="text-xs font-medium text-brand-400 hover:text-brand-300" 
-                  onClick={() => { setTaskFilterProject(''); setTaskFilterUser(''); }}>
-                  Limpiar
+              {/* NUEVO: FILTRO ESTADO */}
+              <select className="input max-w-[160px] border-none bg-surface-700 text-sm" 
+                value={taskFilterStatus} onChange={e => setTaskFilterStatus(e.target.value)}>
+                <option value="">📋 Todos los Estados</option>
+                <option value="Pending">Pending</option>
+                <option value="Started">Started</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+              </select>
+
+              {/* NUEVO: FILTRO SEMANA */}
+              <select className="input max-w-[150px] border-none bg-surface-700 text-sm" 
+                value={taskFilterWeek} onChange={e => setTaskFilterWeek(e.target.value)}>
+                <option value="">🗓️ Toda Semana</option>
+                {weeksOptions.map(w => (
+                  <option key={w} value={w}>S{w} (Semana {w})</option>
+                ))}
+              </select>
+
+              {(taskFilterProject || taskFilterUser || taskFilterStatus || taskFilterWeek) && (
+                <button className="text-xs font-medium text-brand-400 hover:text-brand-300 whitespace-nowrap px-2" 
+                  onClick={() => { setTaskFilterProject(''); setTaskFilterUser(''); setTaskFilterStatus(''); setTaskFilterWeek(''); }}>
+                  Limpiar Filtros
                 </button>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <button className="btn-ghost text-xs border border-green-600/30 text-green-400 hover:bg-green-500/10" 
                 onClick={() => exportCSV('tareas_reporte.csv', filteredTasks, [
                   {label:'Tarea', key:'name'}, 
@@ -323,20 +341,19 @@ export default function Reports() {
                   {label:'Progreso', key:'progress'}, 
                   {label:'Semanas', key:'start_week'}
                 ])}>
-                <Download size={14} className="mr-1"/> Exportar Excel
+                <Download size={14} className="mr-1"/> Excel
               </button>
 
               <button className="btn-ghost text-xs border border-red-600/30 text-red-400 hover:bg-red-500/10" 
                 onClick={exportTasksToPDF} disabled={isExportingPDF}>
                 {isExportingPDF ? <Spinner size="sm"/> : <FileText size={14} className="mr-1"/>}
-                {isExportingPDF ? 'Generando...' : 'Exportar a PDF'}
+                {isExportingPDF ? '...' : 'PDF'}
               </button>
             </div>
           </div>
 
           <p className="text-xs text-slate-400 px-1">Mostrando {filteredTasks.length} tareas</p>
 
-          {/* Tabla de Tareas Visible */}
           <div className="table-wrap overflow-x-auto" id="tasks-report-table">
             <table className="w-full min-w-[900px]">
               <thead>
