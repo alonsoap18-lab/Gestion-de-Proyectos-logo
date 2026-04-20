@@ -46,6 +46,7 @@ export default function App() {
       <Route path="/proveedores" element={<P el={<Proveedores />} />} />
       <Route path="/users" element={<A el={<Users />} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="profile" element={<Profile />} />
     </Routes>
   );
 }
