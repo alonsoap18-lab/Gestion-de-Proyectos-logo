@@ -4,11 +4,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
 import { Plus, Pencil, Trash2, CheckSquare, Filter, User } from 'lucide-react';
+import { useAuth } from '../context/AuthContext'; // <-- IMPORTAMOS LA SESIÓN
 
 const BLANK = { name:'', project_id:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
 export default function Tasks() {
   const qc = useQueryClient();
+  const { user } = useAuth(); // <-- OBTENEMOS AL USUARIO
+
   const [modal,   setModal]   = useState(false);
   const [form,    setForm]    = useState(BLANK);
   const [delTgt,  setDelTgt]  = useState(null);
@@ -17,7 +20,11 @@ export default function Tasks() {
   const [fpj,     setFpj]     = useState('');
   const [fst,     setFst]     = useState('');
   const [fpr,     setFpr]     = useState('');
-  const [fusr,    setFusr]    = useState(''); // <-- NUEVO: Filtro de Usuario
+  const [fusr,    setFusr]    = useState('');
+
+  // --- DEFINIMOS LOS PERMISOS GLOBALES ---
+  const isManager = ['Admin', 'Engineer', 'Supervisor'].includes(user?.role);
+  const isObserver = user?.role === 'Observer';
 
   // 1. LEER DATOS DESDE SUPABASE
   const { data: tasks    = [], isLoading } = useQuery({ 
@@ -48,7 +55,6 @@ export default function Tasks() {
   // 2. CREAR O ACTUALIZAR TAREA EN SUPABASE
   const save = useMutation({
     mutationFn: async (d) => {
-      // Limpiamos los datos extra para evitar el error 400
       const dataToSave = {
         name: d.name,
         project_id: d.project_id,
@@ -91,7 +97,7 @@ export default function Tasks() {
     if (fpj  && t.project_id  !== fpj)  return false;
     if (fst  && t.status      !== fst)  return false;
     if (fpr  && t.priority    !== fpr)  return false;
-    if (fusr && t.assigned_to !== fusr) return false; // <-- Lógica del filtro de usuario
+    if (fusr && t.assigned_to !== fusr) return false; 
     return true;
   }).map(t => {
     const p = projects.find(proj => proj.id === t.project_id);
@@ -122,9 +128,12 @@ export default function Tasks() {
           <h1 className="page-title">Tareas</h1>
           <p className="text-slate-400 text-sm mt-0.5">{filtered.length} tarea(s) visibles</p>
         </div>
-        <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
-          <Plus size={15}/> Nueva Tarea
-        </button>
+        {/* CANDADO: Solo los Managers pueden crear Tareas desde cero */}
+        {isManager && (
+          <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+            <Plus size={15}/> Nueva Tarea
+          </button>
+        )}
       </div>
 
       {/* KPI pills */}
@@ -152,7 +161,6 @@ export default function Tasks() {
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
 
-        {/* CAJA DESPLEGABLE DE USUARIO */}
         <select className="input max-w-[180px] border-none bg-surface-700" value={fusr} onChange={e => setFusr(e.target.value)}>
           <option value="">👤 Todos los usuarios</option>
           {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -193,33 +201,55 @@ export default function Tasks() {
                 <th className="th">Estado</th>
                 <th className="th w-36">Progreso</th>
                 <th className="th">Prioridad</th>
-                <th className="th w-20"/>
+                {/* Ocultamos la columna vacía de acciones para los observers */}
+                {!isObserver && <th className="th w-20"/>}
               </tr>
             </thead>
             <tbody>
-              {projTasks.map(t => (
-                <tr key={t.id} className="tr-hover">
-                  <td className="td font-medium text-slate-200">{t.name}</td>
-                  <td className="td text-slate-400 text-xs flex items-center gap-1 mt-1.5">
-                    <User size={12} className="text-slate-500"/> {t.assigned_name || '—'}
-                  </td>
-                  <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
-                  <td className="td"><Badge status={t.status}/></td>
-                  <td className="td"><Progress value={t.progress} size="sm"/></td>
-                  <td className="td">
-                    <span className={`text-xs font-semibold
-                      ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
-                      {t.priority}
-                    </span>
-                  </td>
-                  <td className="td">
-                    <div className="flex gap-1">
-                      <button className="btn-icon" onClick={() => { setForm({...t}); setModal(true); }}><Pencil size={12}/></button>
-                      <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(t)}><Trash2 size={12}/></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {projTasks.map(t => {
+                
+                // CANDADO ESPECÍFICO DE LA FILA:
+                // ¿Puede este usuario editar ESTA tarea específica?
+                // Sí, si es Manager, O si él es el asignado a la tarea (y no es Observer).
+                const canEditThisTask = !isObserver && (isManager || t.assigned_to === user?.id);
+
+                return (
+                  <tr key={t.id} className="tr-hover">
+                    <td className="td font-medium text-slate-200">{t.name}</td>
+                    <td className="td text-slate-400 text-xs flex items-center gap-1 mt-1.5">
+                      <User size={12} className="text-slate-500"/> {t.assigned_name || '—'}
+                    </td>
+                    <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
+                    <td className="td"><Badge status={t.status}/></td>
+                    <td className="td"><Progress value={t.progress} size="sm"/></td>
+                    <td className="td">
+                      <span className={`text-xs font-semibold
+                        ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
+                        {t.priority}
+                      </span>
+                    </td>
+                    
+                    {/* Botones de Acción de la Fila */}
+                    {!isObserver && (
+                      <td className="td">
+                        <div className="flex gap-1">
+                          {canEditThisTask && (
+                            <button className="btn-icon" onClick={() => { setForm({...t}); setModal(true); }}>
+                              <Pencil size={12}/>
+                            </button>
+                          )}
+                          {/* Solo los Managers pueden eliminar tareas */}
+                          {isManager && (
+                            <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(t)}>
+                              <Trash2 size={12}/>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -227,44 +257,59 @@ export default function Tasks() {
 
       {filtered.length === 0 && (
         <Empty icon={CheckSquare} title="Sin Tareas" message="No hay tareas que coincidan con los filtros."
-          action={<button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}><Plus size={14}/>Nueva Tarea</button>}/>
+          action={
+            isManager && (
+              <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+                <Plus size={14}/>Nueva Tarea
+              </button>
+            )
+          }
+        />
       )}
 
       {/* Form modal */}
+      {/* CANDADO DEL MODAL: Si eres Worker, te bloqueamos los campos que no deberías tocar 
+          (solo puedes mover el progreso, el estado y tu descripción, pero no el nombre ni las fechas) */}
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
         <form onSubmit={e => { e.preventDefault(); save.mutate(form); }} className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <Field label="Nombre" required>
-              <input className="input" value={form.name} onChange={e => setForm({...form, name: e.target.value})} required/>
+              <input className="input" value={form.name} disabled={!isManager}
+                onChange={e => setForm({...form, name: e.target.value})} required/>
             </Field>
           </div>
           <Field label="Proyecto" required>
-            <select className="input" value={form.project_id} onChange={e => setForm({...form, project_id: e.target.value})} required>
+            <select className="input" value={form.project_id} disabled={!isManager}
+              onChange={e => setForm({...form, project_id: e.target.value})} required>
               <option value="">— Seleccionar —</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Field>
           <Field label="Asignado a">
-            <select className="input" value={form.assigned_to||''} onChange={e => setForm({...form, assigned_to: e.target.value})}>
+            <select className="input" value={form.assigned_to||''} disabled={!isManager}
+              onChange={e => setForm({...form, assigned_to: e.target.value})}>
               <option value="">— Sin asignar —</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           </Field>
           <Field label="Semana Inicio">
-            <input type="number" className="input" value={form.start_week} min={1}
+            <input type="number" className="input" value={form.start_week} min={1} disabled={!isManager}
               onChange={e => setForm({...form, start_week: parseInt(e.target.value)||1})}/>
           </Field>
           <Field label="Semana Fin">
-            <input type="number" className="input" value={form.end_week} min={1}
+            <input type="number" className="input" value={form.end_week} min={1} disabled={!isManager}
               onChange={e => setForm({...form, end_week: parseInt(e.target.value)||2})}/>
           </Field>
+          
+          {/* ESTOS SÍ LOS PUEDE EDITAR EL WORKER (Progreso y Estado) */}
           <Field label="Estado">
             <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
               <option>Pending</option><option>Started</option><option>In Progress</option><option>Completed</option>
             </select>
           </Field>
           <Field label="Prioridad">
-            <select className="input" value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}>
+            <select className="input" value={form.priority} disabled={!isManager}
+              onChange={e => setForm({...form, priority: e.target.value})}>
               <option>Low</option><option>Medium</option><option>High</option>
             </select>
           </Field>
@@ -290,8 +335,11 @@ export default function Tasks() {
         </form>
       </Modal>
 
-      <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
-        title="Eliminar Tarea" message={`¿Eliminar "${delTgt?.name}"?`}/>
+      {/* Solo Managers eliminan tareas */}
+      {isManager && (
+        <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
+          title="Eliminar Tarea" message={`¿Eliminar "${delTgt?.name}"?`}/>
+      )}
     </div>
   );
 }
