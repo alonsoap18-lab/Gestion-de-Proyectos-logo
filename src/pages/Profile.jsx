@@ -1,12 +1,14 @@
 // src/pages/Profile.jsx
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom'; // <-- Importamos la navegación
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Field } from '../components/ui';
-import { User, Shield, KeyRound, Mail, Briefcase, CheckCircle2 } from 'lucide-react';
+import { User, Shield, KeyRound, Mail, Briefcase, CheckCircle2, ArrowLeft } from 'lucide-react'; // <-- Agregamos ArrowLeft
 
 export default function Profile() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate(); // <-- Inicializamos la navegación
   
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -31,7 +33,7 @@ export default function Profile() {
 
     setLoading(true);
     try {
-      // 1. Verificamos que la clave actual sea correcta consultando Supabase
+      // 1. Verificamos que la clave actual sea correcta
       const { data: dbUser, error: checkError } = await supabase
         .from('users')
         .select('password')
@@ -58,7 +60,7 @@ export default function Profile() {
       setNewPassword('');
       setConfirmPassword('');
       
-      // Por seguridad, forzamos cierre de sesión a los 3 segundos
+      // Forzamos cierre de sesión a los 3 segundos
       setTimeout(() => {
         logout();
       }, 3000);
@@ -70,9 +72,22 @@ export default function Profile() {
     }
   };
 
+  // Función para el botón cancelar
+  const handleCancel = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    navigate(-1); // Te devuelve a la pantalla donde estabas antes
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="page-header">
+      
+      {/* HEADER MEJORADO CON FLECHA DE VOLVER */}
+      <div className="flex items-start gap-3">
+        <button onClick={handleCancel} className="btn-icon p-2 mt-0.5" title="Volver">
+          <ArrowLeft size={18}/>
+        </button>
         <div>
           <h1 className="page-title">Mi Perfil</h1>
           <p className="text-slate-400 text-sm mt-0.5">Gestiona tu información y seguridad</p>
@@ -147,7 +162,11 @@ export default function Profile() {
                   </Field>
                 </div>
 
-                <div className="pt-4 border-t border-surface-600 flex justify-end">
+                {/* BOTONES MEJORADOS */}
+                <div className="pt-4 border-t border-surface-600 flex justify-end gap-2">
+                  <button type="button" className="btn-ghost w-full sm:w-auto" onClick={handleCancel} disabled={loading}>
+                    Cancelar
+                  </button>
                   <button type="submit" className="btn-primary w-full sm:w-auto" disabled={loading}>
                     {loading ? 'Validando...' : 'Actualizar Contraseña'}
                   </button>
