@@ -6,16 +6,24 @@ import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
 import { Plus, Pencil, Trash2, FolderKanban, MapPin, Calendar, Clock, Users, ChevronRight, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
+import { useAuth } from '../context/AuthContext'; // <-- 1. IMPORTAMOS LA SESIÓN
 
 const BLANK = { name:'', client:'', location:'', start_date:'', duration_weeks:12, status:'Planning', description:'', budget:'' };
 
 export default function Projects() {
   const qc       = useQueryClient();
   const navigate = useNavigate();
+  const { user } = useAuth(); // <-- 2. OBTENEMOS AL USUARIO
+
   const [modal,  setModal]  = useState(false);
   const [form,   setForm]   = useState(BLANK);
   const [delTgt, setDelTgt] = useState(null);
   const [filter, setFilter] = useState('');
+
+  // --- 3. DEFINIMOS LOS PERMISOS (CANDADOS) ---
+  const isAdmin = user?.role === 'Admin';
+  const isManager = ['Admin', 'Engineer', 'Supervisor'].includes(user?.role);
+  const canSeeMoney = ['Admin', 'Engineer'].includes(user?.role);
 
   // 1. LEER PROYECTOS DESDE SUPABASE
   const { data: projects = [], isLoading } = useQuery({
@@ -70,9 +78,12 @@ export default function Projects() {
           <h1 className="page-title">Proyectos</h1>
           <p className="text-slate-400 text-sm mt-0.5">{projects.length} proyecto(s) en el sistema</p>
         </div>
-        <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
-          <Plus size={15}/> Nuevo Proyecto
-        </button>
+        {/* CANDADO: Solo Managers o Admins pueden crear un proyecto nuevo */}
+        {isManager && (
+          <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+            <Plus size={15}/> Nuevo Proyecto
+          </button>
+        )}
       </div>
 
       {/* Status filter pills */}
@@ -107,13 +118,19 @@ export default function Projects() {
                 <p className="text-slate-500 text-xs truncate">{p.client || 'Sin cliente'}</p>
               </div>
               <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <button className="btn-icon"
-                  onClick={() => { setForm({ ...p, budget: p.budget?.toString() || '' }); setModal(true); }}>
-                  <Pencil size={13}/>
-                </button>
-                <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(p)}>
-                  <Trash2 size={13}/>
-                </button>
+                {/* CANDADO: Solo Managers pueden editar */}
+                {isManager && (
+                  <button className="btn-icon"
+                    onClick={() => { setForm({ ...p, budget: p.budget?.toString() || '' }); setModal(true); }}>
+                    <Pencil size={13}/>
+                  </button>
+                )}
+                {/* CANDADO: Solo Admin puede eliminar */}
+                {isAdmin && (
+                  <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(p)}>
+                    <Trash2 size={13}/>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -127,11 +144,14 @@ export default function Projects() {
                 </div>
               )}
               <div className="flex items-center gap-1.5"><Clock size={11} className="text-brand-500"/>{p.duration_weeks} semanas</div>
-              {p.budget > 0 && (
+              
+              {/* CANDADO: Solo Admin/Engineer pueden ver la plata */}
+              {canSeeMoney && p.budget > 0 && (
                 <div className="flex items-center gap-1.5"><DollarSign size={11} className="text-brand-500"/>
                   ${Number(p.budget).toLocaleString()}
                 </div>
               )}
+              
               {p.members?.length > 0 && (
                 <div className="flex items-center gap-1.5"><Users size={11} className="text-brand-500"/>{p.members.length} miembro(s)</div>
               )}
@@ -153,75 +173,91 @@ export default function Projects() {
           <div className="col-span-3">
             <Empty icon={FolderKanban} title="Sin Proyectos"
               message="No hay proyectos que coincidan con el filtro seleccionado."
-              action={<button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
-                <Plus size={14}/> Nuevo Proyecto
-              </button>}/>
+              action={
+                /* CANDADO: En el estado vacío también protegemos el botón */
+                isManager && (
+                  <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+                    <Plus size={14}/> Nuevo Proyecto
+                  </button>
+                )
+              }
+            />
           </div>
         )}
       </div>
 
-      {/* Form modal */}
-      <Modal open={modal} onClose={() => setModal(false)}
-        title={form.id ? 'Editar Proyecto' : 'Nuevo Proyecto'} size="lg">
-        <form onSubmit={e => { 
-            e.preventDefault(); 
-            save.mutate({ 
-              ...form, 
-              duration_weeks: parseInt(form.duration_weeks) || 12, 
-              budget: parseFloat(form.budget) || 0,
-              start_date: form.start_date || null 
-            }); 
-          }}
-          className="grid grid-cols-2 gap-4">
+      {/* Form modal - CANDADO: Solo renderiza el modal si es Manager */}
+      {isManager && (
+        <Modal open={modal} onClose={() => setModal(false)}
+          title={form.id ? 'Editar Proyecto' : 'Nuevo Proyecto'} size="lg">
+          <form onSubmit={e => { 
+              e.preventDefault(); 
+              save.mutate({ 
+                ...form, 
+                duration_weeks: parseInt(form.duration_weeks) || 12, 
+                budget: parseFloat(form.budget) || 0,
+                start_date: form.start_date || null 
+              }); 
+            }}
+            className="grid grid-cols-2 gap-4">
 
-          <div className="col-span-2">
-            <Field label="Nombre del Proyecto" required>
-              <input className="input" value={form.name}
-                onChange={e => setForm({...form, name: e.target.value})} required placeholder="Residencial Las Palmas…"/>
+            <div className="col-span-2">
+              <Field label="Nombre del Proyecto" required>
+                <input className="input" value={form.name}
+                  onChange={e => setForm({...form, name: e.target.value})} required placeholder="Residencial Las Palmas…"/>
+              </Field>
+            </div>
+            <Field label="Cliente">
+              <input className="input" value={form.client||''} onChange={e => setForm({...form, client: e.target.value})} placeholder="Nombre del cliente"/>
             </Field>
-          </div>
-          <Field label="Cliente">
-            <input className="input" value={form.client||''} onChange={e => setForm({...form, client: e.target.value})} placeholder="Nombre del cliente"/>
-          </Field>
-          <Field label="Ubicación">
-            <input className="input" value={form.location||''} onChange={e => setForm({...form, location: e.target.value})} placeholder="San José, Costa Rica"/>
-          </Field>
-          <Field label="Fecha de Inicio">
-            <input type="date" className="input" value={form.start_date||''} onChange={e => setForm({...form, start_date: e.target.value})}/>
-          </Field>
-          <Field label="Duración (semanas)">
-            <input type="number" className="input" value={form.duration_weeks} min={1} max={200}
-              onChange={e => setForm({...form, duration_weeks: e.target.value})}/>
-          </Field>
-          <Field label="Presupuesto ($)">
-            <input type="number" className="input" value={form.budget||''} min={0} step="0.01"
-              onChange={e => setForm({...form, budget: e.target.value})} placeholder="0.00"/>
-          </Field>
-          <Field label="Estado">
-            <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
-              <option>Planning</option><option>Active</option>
-              <option>Delayed</option><option>Completed</option><option>On Hold</option>
-            </select>
-          </Field>
-          <div className="col-span-2">
-            <Field label="Descripción">
-              <textarea className="input" rows={3} value={form.description||''}
-                onChange={e => setForm({...form, description: e.target.value})} placeholder="Descripción del proyecto…"/>
+            <Field label="Ubicación">
+              <input className="input" value={form.location||''} onChange={e => setForm({...form, location: e.target.value})} placeholder="San José, Costa Rica"/>
             </Field>
-          </div>
+            <Field label="Fecha de Inicio">
+              <input type="date" className="input" value={form.start_date||''} onChange={e => setForm({...form, start_date: e.target.value})}/>
+            </Field>
+            <Field label="Duración (semanas)">
+              <input type="number" className="input" value={form.duration_weeks} min={1} max={200}
+                onChange={e => setForm({...form, duration_weeks: e.target.value})}/>
+            </Field>
+            
+            {/* CANDADO: El campo del presupuesto solo le sale a Admin/Engineer */}
+            {canSeeMoney && (
+              <Field label="Presupuesto ($)">
+                <input type="number" className="input" value={form.budget||''} min={0} step="0.01"
+                  onChange={e => setForm({...form, budget: e.target.value})} placeholder="0.00"/>
+              </Field>
+            )}
 
-          <div className="col-span-2 flex justify-end gap-2 pt-2">
-            <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
-            <button type="submit" className="btn-primary" disabled={save.isPending}>
-              {save.isPending ? 'Guardando…' : form.id ? 'Actualizar' : 'Crear Proyecto'}
-            </button>
-          </div>
-        </form>
-      </Modal>
+            <Field label="Estado">
+              <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                <option>Planning</option><option>Active</option>
+                <option>Delayed</option><option>Completed</option><option>On Hold</option>
+              </select>
+            </Field>
+            <div className="col-span-2">
+              <Field label="Descripción">
+                <textarea className="input" rows={3} value={form.description||''}
+                  onChange={e => setForm({...form, description: e.target.value})} placeholder="Descripción del proyecto…"/>
+              </Field>
+            </div>
 
-      <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
-        title="Eliminar Proyecto"
-        message={`¿Eliminar "${delTgt?.name}"? Se eliminarán todas sus tareas, fotos y materiales asociados.`}/>
+            <div className="col-span-2 flex justify-end gap-2 pt-2">
+              <button type="button" className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+              <button type="submit" className="btn-primary" disabled={save.isPending}>
+                {save.isPending ? 'Guardando…' : form.id ? 'Actualizar' : 'Crear Proyecto'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* CANDADO: El modal de confirmación de borrado solo para Admin */}
+      {isAdmin && (
+        <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
+          title="Eliminar Proyecto"
+          message={`¿Eliminar "${delTgt?.name}"? Se eliminarán todas sus tareas, fotos y materiales asociados.`}/>
+      )}
     </div>
   );
 }
