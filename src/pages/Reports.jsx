@@ -7,7 +7,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { BarChart3, CheckSquare, Users, Download, Filter, FileText } from 'lucide-react';
+import { BarChart3, CheckSquare, Users, Download, Filter, FileText, ChevronDown } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -34,11 +34,14 @@ function exportCSV(filename, rows, cols) {
 export default function Reports() {
   const [tab, setTab] = useState('projects');
   
-  // Estados para los filtros de tareas (AHORA SON 4)
+  // Estados para los filtros de tareas
   const [taskFilterProject, setTaskFilterProject] = useState('');
   const [taskFilterUser, setTaskFilterUser] = useState('');
-  const [taskFilterStatus, setTaskFilterStatus] = useState(''); // <-- NUEVO
-  const [taskFilterWeek, setTaskFilterWeek] = useState(''); // <-- NUEVO
+  const [taskFilterStatus, setTaskFilterStatus] = useState('');
+  
+  // NUEVOS ESTADOS PARA EL FILTRO MULTIPLE DE SEMANAS
+  const [taskFilterWeeks, setTaskFilterWeeks] = useState([]); // Array para guardar [1, 3, 5]
+  const [isWeekMenuOpen, setIsWeekMenuOpen] = useState(false); // Controla si la cajita está abierta
   
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
@@ -69,7 +72,7 @@ export default function Reports() {
     { name:'Completadas', value: tasks.filter(t=>t.status==='Completed').length,  color: TASK_COLORS.Completed },
   ].filter(d => d.value > 0);
 
-  // === CALCULAMOS LA SEMANA MÁXIMA PARA EL FILTRO ===
+  // === CALCULAMOS LA SEMANA MÁXIMA PARA CREAR LOS BOTONCITOS S1, S2... ===
   const maxWeek = Math.max(...tasks.map(t => t.end_week || 1), 1);
   const weeksOptions = Array.from({ length: maxWeek }, (_, i) => i + 1);
 
@@ -78,12 +81,12 @@ export default function Reports() {
     .filter(t => {
       if (taskFilterProject && t.project_id !== taskFilterProject) return false;
       if (taskFilterUser && t.assigned_to !== taskFilterUser) return false;
-      if (taskFilterStatus && t.status !== taskFilterStatus) return false; // <-- Filtro Estado
+      if (taskFilterStatus && t.status !== taskFilterStatus) return false;
       
-      if (taskFilterWeek) {
-        const targetWeek = parseInt(taskFilterWeek, 10);
-        // Mostrar la tarea si la semana buscada cae DENTRO del rango de la tarea
-        if (targetWeek < t.start_week || targetWeek > t.end_week) return false;
+      // Lógica Multiple: Si la tarea cruza por AL MENOS UNA de las semanas seleccionadas
+      if (taskFilterWeeks.length > 0) {
+        const matches = taskFilterWeeks.some(w => w >= t.start_week && w <= t.end_week);
+        if (!matches) return false;
       }
       
       return true;
@@ -99,9 +102,7 @@ export default function Reports() {
       };
     })
     .sort((a, b) => {
-      if (a.start_week !== b.start_week) {
-        return a.start_week - b.start_week;
-      }
+      if (a.start_week !== b.start_week) return a.start_week - b.start_week;
       return a.end_week - b.end_week;
     });
 
@@ -137,7 +138,7 @@ export default function Reports() {
       doc.setFontSize(10);
       doc.text(`Fecha de generación: ${fechaActual}`, logoImg.width > 0 ? 45 : 14, 33);
 
-      // Mostrar TODOS los filtros activos en el reporte
+      // Mostrar TODOS los filtros activos en el reporte PDF
       let subtituloFiltros = "";
       if (taskFilterProject) {
         const pName = projects.find(x => x.id === taskFilterProject)?.name;
@@ -150,13 +151,14 @@ export default function Reports() {
       if (taskFilterStatus) {
         subtituloFiltros += `Estado: ${taskFilterStatus}   `;
       }
-      if (taskFilterWeek) {
-        subtituloFiltros += `Semana: S${taskFilterWeek}`;
+      if (taskFilterWeeks.length > 0) {
+        const sortedW = [...taskFilterWeeks].sort((a,b) => a - b);
+        subtituloFiltros += `Semanas: ${sortedW.map(w => `S${w}`).join(', ')}`;
       }
 
       if (subtituloFiltros) {
         doc.setTextColor(249, 115, 22); 
-        doc.text(`Filtros aplicados -> ${subtituloFiltros}`, 14, 42);
+        doc.text(`Filtros: ${subtituloFiltros}`, 14, 42);
       }
 
       const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Semanas", "Descripción"]];
@@ -286,7 +288,7 @@ export default function Reports() {
       {tab === 'tasks' && (
         <div className="space-y-4">
           
-          {/* BARRA DE FILTROS Y ACCIONES MEJORADA */}
+          {/* BARRA DE FILTROS Y ACCIONES */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-800 p-3 rounded-xl border border-surface-600">
             <div className="flex flex-wrap items-center gap-3 flex-1">
               <Filter size={15} className="text-slate-400 ml-1 flex-shrink-0"/>
@@ -303,7 +305,6 @@ export default function Reports() {
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
 
-              {/* NUEVO: FILTRO ESTADO */}
               <select className="input max-w-[160px] border-none bg-surface-700 text-sm" 
                 value={taskFilterStatus} onChange={e => setTaskFilterStatus(e.target.value)}>
                 <option value="">📋 Todos los Estados</option>
@@ -313,18 +314,55 @@ export default function Reports() {
                 <option value="Completed">Completed</option>
               </select>
 
-              {/* NUEVO: FILTRO SEMANA */}
-              <select className="input max-w-[150px] border-none bg-surface-700 text-sm" 
-                value={taskFilterWeek} onChange={e => setTaskFilterWeek(e.target.value)}>
-                <option value="">🗓️ Toda Semana</option>
-                {weeksOptions.map(w => (
-                  <option key={w} value={w}>S{w} (Semana {w})</option>
-                ))}
-              </select>
+              {/* MENÚ FLOTANTE MÚLTIPLE PARA SEMANAS */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsWeekMenuOpen(!isWeekMenuOpen)}
+                  className="input min-w-[140px] border-none bg-surface-700 text-sm flex items-center justify-between gap-2 h-[38px] px-3 cursor-pointer hover:bg-surface-600 transition-colors"
+                >
+                  <span className="truncate text-slate-200">
+                    {taskFilterWeeks.length === 0 ? '🗓️ Toda Semana' : `🗓️ Semanas (${taskFilterWeeks.length})`}
+                  </span>
+                  <ChevronDown size={14} className="text-slate-400 flex-shrink-0"/>
+                </button>
 
-              {(taskFilterProject || taskFilterUser || taskFilterStatus || taskFilterWeek) && (
+                {isWeekMenuOpen && (
+                  <>
+                    {/* Fondo invisible para cerrar al hacer clic afuera */}
+                    <div className="fixed inset-0 z-40" onClick={() => setIsWeekMenuOpen(false)}></div>
+                    
+                    {/* Cuadro desplegable (Pop-over) */}
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl z-50 p-3">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Múltiple Selección</span>
+                        {taskFilterWeeks.length > 0 && (
+                          <button className="text-xs text-brand-400 hover:text-brand-300 transition-colors" onClick={() => setTaskFilterWeeks([])}>
+                            Limpiar
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Cuadrícula de Semanas (S1, S2, S3...) */}
+                      <div className="grid grid-cols-5 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                        {weeksOptions.map(w => (
+                          <button key={w} type="button"
+                            onClick={() => setTaskFilterWeeks(prev => prev.includes(w) ? prev.filter(x => x !== w) : [...prev, w])}
+                            className={`py-1.5 rounded-lg text-xs font-mono font-medium transition-all
+                              ${taskFilterWeeks.includes(w)
+                                ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
+                                : 'bg-surface-700 text-slate-400 hover:bg-surface-600 hover:text-white'}`}>
+                            S{w}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {(taskFilterProject || taskFilterUser || taskFilterStatus || taskFilterWeeks.length > 0) && (
                 <button className="text-xs font-medium text-brand-400 hover:text-brand-300 whitespace-nowrap px-2" 
-                  onClick={() => { setTaskFilterProject(''); setTaskFilterUser(''); setTaskFilterStatus(''); setTaskFilterWeek(''); }}>
+                  onClick={() => { setTaskFilterProject(''); setTaskFilterUser(''); setTaskFilterStatus(''); setTaskFilterWeeks([]); }}>
                   Limpiar Filtros
                 </button>
               )}
