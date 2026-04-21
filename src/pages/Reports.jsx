@@ -3,21 +3,28 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Spinner, Badge, Progress } from '../components/ui';
+import { differenceInCalendarDays } from 'date-fns'; // <-- Usado para calcular la semana actual
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
+  LineChart, Line, CartesianGrid // <-- Nuevos gráficos para la Curva S
 } from 'recharts';
-import { BarChart3, CheckSquare, Users, Download, Filter, FileText, ChevronDown } from 'lucide-react';
+import { 
+  BarChart3, CheckSquare, Users, Download, Filter, 
+  FileText, ChevronDown, TrendingUp, AlertTriangle, CheckCircle2 
+} from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx'; // <-- NUEVA LIBRERÍA DE EXCEL
+import * as XLSX from 'xlsx'; 
 
 const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
 );
 
+// NUEVA PESTAÑA AGREGADA: CURVA S
 const TABS = [
   { id:'projects',  label:'Proyectos',  icon: BarChart3  },
+  { id:'curve',     label:'Curva S',    icon: TrendingUp }, 
   { id:'tasks',     label:'Tareas',     icon: CheckSquare },
   { id:'employees', label:'Empleados',  icon: Users       },
 ];
@@ -25,33 +32,24 @@ const TABS = [
 const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress':'#f97316', Completed:'#22c55e' };
 
 // ============================================================================
-// NUEVA FUNCIÓN: EXPORTAR A EXCEL REAL (.xlsx) CON FORMATO LIMPIO
+// FUNCIÓN: EXPORTAR A EXCEL (.xlsx)
 // ============================================================================
 function exportExcel(filename, rows, cols) {
-  // 1. Mapear los datos para Excel
   const excelData = rows.map(r => {
     const rowData = {};
     cols.forEach(c => {
       let val = r[c.key];
-      
-      // Formateo inteligente: Números como números reales y Semanas combinadas
-      if (c.key === 'progress' || c.key === 'budget') {
-        val = Number(val) || 0;
-      } else if (c.key === 'start_week') {
-        val = `S${r.start_week} - S${r.end_week}`;
-      }
-
+      if (c.key === 'progress' || c.key === 'budget') val = Number(val) || 0;
+      else if (c.key === 'start_week') val = `S${r.start_week} - S${r.end_week}`;
       rowData[c.label] = val !== undefined && val !== null ? val : '—';
     });
     return rowData;
   });
 
-  // 2. Crear hoja y dar ancho automático a columnas
   const ws = XLSX.utils.json_to_sheet(excelData);
   const wscols = cols.map(c => ({ wch: Math.max(c.label.length + 5, 20) }));
   ws['!cols'] = wscols;
 
-  // 3. Crear archivo y descargar
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Reporte_ICAA");
   XLSX.writeFile(wb, filename);
@@ -60,16 +58,16 @@ function exportExcel(filename, rows, cols) {
 export default function Reports() {
   const [tab, setTab] = useState('projects');
   
-  // Estados para los filtros de tareas
+  // Estados para Filtros de Tareas
   const [taskFilterProject, setTaskFilterProject] = useState('');
   const [taskFilterUser, setTaskFilterUser] = useState('');
   const [taskFilterStatus, setTaskFilterStatus] = useState('');
-  
-  // ESTADOS PARA EL FILTRO MULTIPLE DE SEMANAS (Intactos)
   const [taskFilterWeeks, setTaskFilterWeeks] = useState([]);
   const [isWeekMenuOpen, setIsWeekMenuOpen] = useState(false);
-  
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+
+  // Estado para Filtro de Curva S
+  const [curveProjectId, setCurveProjectId] = useState('');
 
   // 1. LEER DATOS
   const { data: projects  = [], isLoading: lp } = useQuery({ queryKey:['projects'], queryFn: async () => { const { data } = await supabase.from('projects').select('*'); return data || []; } });
@@ -79,13 +77,13 @@ export default function Reports() {
 
   if (lp || lt || lu || lm) return <Spinner/>;
 
-  // 2. CÁLCULOS KPIs
+  // CÁLCULOS KPIs GLOBALES
   const totalBudget  = projects.reduce((s,p) => s + (Number(p.budget)||0), 0);
   const totalMatCost = materials.reduce((s,m) => s + ((Number(m.quantity)||0) * (Number(m.cost_per_unit)||0)), 0);
   const taskDoneRate = tasks.length ? Math.round((tasks.filter(t=>t.status==='Completed').length / tasks.length)*100) : 0;
   const avgProgress  = projects.length ? Math.round(projects.reduce((s,p) => s+(Number(p.progress)||0),0)/projects.length) : 0;
 
-  // 3. GRÁFICAS (Pestaña Proyectos)
+  // GRÁFICAS (Proyectos)
   const barData = projects.map(p => ({
     name: p.name.length > 15 ? p.name.substring(0,15) + '...' : p.name,
     Progreso: p.progress || 0
@@ -98,95 +96,108 @@ export default function Reports() {
     { name:'Completadas', value: tasks.filter(t=>t.status==='Completed').length,  color: TASK_COLORS.Completed },
   ].filter(d => d.value > 0);
 
-  // === CALCULAMOS LA SEMANA MÁXIMA PARA CREAR LOS BOTONCITOS ===
   const maxWeek = Math.max(...tasks.map(t => t.end_week || 1), 1);
   const weeksOptions = Array.from({ length: maxWeek }, (_, i) => i + 1);
 
-  // 4. PROCESAMIENTO TAREAS
+  // PROCESAMIENTO TAREAS
   const filteredTasks = tasks
     .filter(t => {
       if (taskFilterProject && t.project_id !== taskFilterProject) return false;
       if (taskFilterUser && t.assigned_to !== taskFilterUser) return false;
       if (taskFilterStatus && t.status !== taskFilterStatus) return false;
-      
-      // Lógica Multiple Intacta
       if (taskFilterWeeks.length > 0) {
         const matches = taskFilterWeeks.some(w => w >= t.start_week && w <= t.end_week);
         if (!matches) return false;
       }
-      
       return true;
     })
     .map(t => {
       const p = projects.find(proj => proj.id === t.project_id);
       const u = users.find(user => user.id === t.assigned_to);
       return { 
-        ...t, 
-        project_name: p ? p.name : '—', 
-        assigned_name: u ? u.name : '—',
+        ...t, project_name: p ? p.name : '—', assigned_name: u ? u.name : '—',
         clean_description: t.description ? t.description.replace(/\n/g, ' ') : 'Sin descripción'
       };
     })
-    .sort((a, b) => {
-      if (a.start_week !== b.start_week) return a.start_week - b.start_week;
-      return a.end_week - b.end_week;
-    });
+    .sort((a, b) => (a.start_week !== b.start_week ? a.start_week - b.start_week : a.end_week - b.end_week));
 
-  // ==========================================
-  // EXPORTAR A PDF CORPORATIVO
-  // ==========================================
+  // ============================================================================
+  // MAGIA MATEMÁTICA: CÁLCULO DE LA CURVA S
+  // ============================================================================
+  const activeCurveProjectId = curveProjectId || (projects.length > 0 ? projects[0].id : '');
+  const curveProj = projects.find(p => p.id === activeCurveProjectId);
+  const curveTasks = tasks.filter(t => t.project_id === activeCurveProjectId);
+  
+  let curveData = [];
+  let currentProjectWeek = 1;
+  let expectedProgress = 0;
+  let actualProgress = curveProj?.progress || 0;
+
+  if (curveProj && curveTasks.length > 0) {
+    const cMaxWeek = Math.max(...curveTasks.map(t => t.end_week || 1), 1);
+    
+    // Calcular en qué semana real estamos basados en la fecha de inicio
+    const startDate = curveProj.start_date ? new Date(curveProj.start_date) : new Date();
+    const daysSinceStart = Math.max(0, differenceInCalendarDays(new Date(), startDate));
+    currentProjectWeek = Math.max(1, Math.ceil(daysSinceStart / 7));
+
+    // Generar datos semana a semana
+    for (let w = 1; w <= cMaxWeek; w++) {
+      let totalPlanned = 0;
+      
+      // Calcular cuánto % DEBERÍA estar listo en la semana W
+      curveTasks.forEach(t => {
+        const sw = t.start_week || 1;
+        const ew = t.end_week || 2;
+        if (w >= ew) totalPlanned += 100; // Tarea debería estar terminada
+        else if (w >= sw) totalPlanned += ((w - sw + 1) / (ew - sw + 1)) * 100; // Tarea en proceso
+      });
+      
+      const planificado = Math.round(totalPlanned / curveTasks.length);
+      
+      // Calcular línea Real (Solo se dibuja hasta la semana actual)
+      let real = null;
+      if (w <= currentProjectWeek) {
+        // Interpolación visual del avance real hasta hoy
+        real = Math.round((curveProj.progress || 0) * (w / Math.min(currentProjectWeek, cMaxWeek)));
+      }
+
+      curveData.push({ name: `S${w}`, Planificado: planificado, Real: real });
+    }
+
+    // Calcular valores para las tarjetas de resumen
+    const currentPoint = curveData[Math.min(currentProjectWeek - 1, cMaxWeek - 1)] || curveData[curveData.length - 1];
+    expectedProgress = currentPoint ? currentPoint.Planificado : 0;
+  }
+  
+  const deviation = actualProgress - expectedProgress;
+
+  // ============================================================================
+  // EXPORTAR A PDF
+  // ============================================================================
   const exportTasksToPDF = async () => {
     setIsExportingPDF(true);
     try {
       const doc = new jsPDF('landscape');
-      const logoImg = new Image();
-      logoImg.src = '/icaa-logo.png'; 
-
-      await new Promise((resolve) => {
-        logoImg.onload = resolve;
-        logoImg.onerror = resolve; 
-      });
-
+      const logoImg = new Image(); logoImg.src = '/icaa-logo.png'; 
+      await new Promise((resolve) => { logoImg.onload = resolve; logoImg.onerror = resolve; });
       if (logoImg.width > 0) doc.addImage(logoImg, 'PNG', 14, 10, 25, 25);
 
-      doc.setFontSize(20);
-      doc.setTextColor(45, 79, 160);
-      doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 45 : 14, 20);
-      
-      doc.setFontSize(12);
-      doc.setTextColor(100, 116, 139);
-      doc.text("Reporte Detallado de Tareas", logoImg.width > 0 ? 45 : 14, 27);
+      doc.setFontSize(20); doc.setTextColor(45, 79, 160); doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 45 : 14, 20);
+      doc.setFontSize(12); doc.setTextColor(100, 116, 139); doc.text("Reporte Detallado de Tareas", logoImg.width > 0 ? 45 : 14, 27);
       
       const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
-      doc.setFontSize(10);
-      doc.text(`Fecha de generación: ${fechaActual}`, logoImg.width > 0 ? 45 : 14, 33);
+      doc.setFontSize(10); doc.text(`Fecha de generación: ${fechaActual}`, logoImg.width > 0 ? 45 : 14, 33);
 
       let subtituloFiltros = "";
-      if (taskFilterProject) {
-        const pName = projects.find(x => x.id === taskFilterProject)?.name;
-        subtituloFiltros += `Proyecto: ${pName}   `;
-      }
-      if (taskFilterUser) {
-        const uName = users.find(x => x.id === taskFilterUser)?.name;
-        subtituloFiltros += `Usuario: ${uName}   `;
-      }
-      if (taskFilterStatus) {
-        subtituloFiltros += `Estado: ${taskFilterStatus}   `;
-      }
-      if (taskFilterWeeks.length > 0) {
-        const sortedW = [...taskFilterWeeks].sort((a,b) => a - b);
-        subtituloFiltros += `Semanas: ${sortedW.map(w => `S${w}`).join(', ')}`;
-      }
-
-      if (subtituloFiltros) {
-        doc.setTextColor(249, 115, 22); 
-        doc.text(`Filtros: ${subtituloFiltros}`, 14, 42);
-      }
+      if (taskFilterProject) subtituloFiltros += `Proyecto: ${projects.find(x => x.id === taskFilterProject)?.name}   `;
+      if (taskFilterUser) subtituloFiltros += `Usuario: ${users.find(x => x.id === taskFilterUser)?.name}   `;
+      if (taskFilterStatus) subtituloFiltros += `Estado: ${taskFilterStatus}   `;
+      if (taskFilterWeeks.length > 0) subtituloFiltros += `Semanas: ${[...taskFilterWeeks].sort((a,b) => a - b).map(w => `S${w}`).join(', ')}`;
+      if (subtituloFiltros) { doc.setTextColor(249, 115, 22); doc.text(`Filtros: ${subtituloFiltros}`, 14, 42); }
 
       const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Semanas", "Descripción"]];
-      const tableData = filteredTasks.map(t => [
-        t.name, t.project_name, t.assigned_name, t.status, `${t.progress || 0}%`, `S${t.start_week} - S${t.end_week}`, t.clean_description
-      ]);
+      const tableData = filteredTasks.map(t => [ t.name, t.project_name, t.assigned_name, t.status, `${t.progress || 0}%`, `S${t.start_week} - S${t.end_week}`, t.clean_description ]);
 
       autoTable(doc, {
         head: tableHeaders, body: tableData, startY: subtituloFiltros ? 48 : 42, theme: 'striped',
@@ -194,23 +205,13 @@ export default function Reports() {
         alternateRowStyles: { fillColor: [245, 247, 250] },
         styles: { fontSize: 9, cellPadding: 4, textColor: [51, 65, 85] },
         columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 35 }, 3: { cellWidth: 25 }, 4: { cellWidth: 20 }, 5: { cellWidth: 20 }, 6: { cellWidth: 'auto' } },
-        didDrawPage: function (data) {
-          doc.setFontSize(8); doc.setTextColor(150); doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
-        }
+        didDrawPage: function (data) { doc.setFontSize(8); doc.setTextColor(150); doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10); }
       });
 
       let filename = 'Reporte_Tareas_ICAA';
-      if (taskFilterProject) {
-        const p = projects.find(x => x.id === taskFilterProject);
-        if (p) filename += `_${p.name.replace(/\s+/g, '_')}`;
-      }
+      if (taskFilterProject) filename += `_${projects.find(x => x.id === taskFilterProject)?.name.replace(/\s+/g, '_')}`;
       doc.save(`${filename}.pdf`);
-
-    } catch (error) {
-      alert("Hubo un error al generar el PDF."); console.error(error);
-    } finally {
-      setIsExportingPDF(false);
-    }
+    } catch (error) { alert("Hubo un error al generar el PDF."); console.error(error); } finally { setIsExportingPDF(false); }
   };
 
   return (
@@ -240,13 +241,13 @@ export default function Reports() {
         {TABS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all
-              ${tab === id ? 'bg-brand-500 text-white' : 'text-slate-400 hover:bg-surface-700'}`}>
+              ${tab === id ? 'bg-brand-500 text-white shadow-lg shadow-brand-500/20' : 'text-slate-400 hover:bg-surface-700'}`}>
             <Icon size={16}/> {label}
           </button>
         ))}
       </div>
 
-      {/* === PESTAÑA: PROYECTOS === */}
+      {/* === PESTAÑA 1: PROYECTOS === */}
       {tab === 'projects' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -274,17 +275,11 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           </div>
-
           <div className="flex justify-end">
-            {/* BOTÓN ACTUALIZADO PARA EXCEL DE PROYECTOS */}
             <button className="btn-ghost text-xs flex items-center gap-2" 
               onClick={() => exportExcel('Proyectos_ICAA.xlsx', projects, [
-                {label:'Nombre', key:'name'}, 
-                {label:'Cliente', key:'client'}, 
-                {label:'Ubicación', key:'location'},
-                {label:'Estado', key:'status'}, 
-                {label:'Progreso (%)', key:'progress'}, 
-                {label:'Presupuesto ($)', key:'budget'}
+                {label:'Nombre', key:'name'}, {label:'Cliente', key:'client'}, {label:'Ubicación', key:'location'},
+                {label:'Estado', key:'status'}, {label:'Progreso (%)', key:'progress'}, {label:'Presupuesto ($)', key:'budget'}
               ])}>
               <Download size={14}/> Exportar Proyectos Excel
             </button>
@@ -292,28 +287,105 @@ export default function Reports() {
         </div>
       )}
 
-      {/* === PESTAÑA: TAREAS === */}
+      {/* === PESTAÑA 2: CURVA S (NUEVA) === */}
+      {tab === 'curve' && (
+        <div className="space-y-5">
+          
+          <div className="flex flex-wrap items-center justify-between bg-surface-800 p-3 rounded-xl border border-surface-600">
+            <div className="flex items-center gap-3">
+              <TrendingUp size={18} className="text-brand-400 ml-1"/>
+              <span className="text-sm font-semibold text-slate-200">Seleccionar Proyecto:</span>
+              <select className="input max-w-[300px] border-none bg-surface-700 text-sm font-medium" 
+                value={activeCurveProjectId} onChange={e => setCurveProjectId(e.target.value)}>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            {curveProj?.start_date && (
+              <div className="text-xs text-slate-400 px-3">
+                Inicio Oficial: <span className="text-slate-200 font-mono">{new Date(curveProj.start_date).toLocaleDateString()}</span>
+              </div>
+            )}
+          </div>
+
+          {curveTasks.length === 0 ? (
+            <div className="card p-10 text-center text-slate-500">
+              <TrendingUp size={40} className="mx-auto mb-3 opacity-20"/>
+              <p>Este proyecto aún no tiene tareas asignadas para generar la Curva S.</p>
+            </div>
+          ) : (
+            <>
+              {/* Tarjetas de Resumen de la Curva */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="card p-4 border-l-4 border-l-surface-500">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Semana Actual</div>
+                  <div className="text-2xl font-display font-bold text-white">S{currentProjectWeek}</div>
+                </div>
+                <div className="card p-4 border-l-4 border-l-slate-400">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Progreso Esperado</div>
+                  <div className="text-2xl font-display font-bold text-slate-300">{expectedProgress}%</div>
+                </div>
+                <div className="card p-4 border-l-4 border-l-brand-400">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Progreso Real</div>
+                  <div className="text-2xl font-display font-bold text-brand-400">{actualProgress}%</div>
+                </div>
+                <div className={`card p-4 border-l-4 ${deviation < 0 ? 'border-l-red-500 bg-red-500/5' : 'border-l-green-500 bg-green-500/5'}`}>
+                  <div className={`text-xs uppercase tracking-wider font-semibold mb-1 ${deviation < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                    Desviación
+                  </div>
+                  <div className="flex items-center gap-2 text-2xl font-display font-bold text-white">
+                    {deviation > 0 ? '+' : ''}{deviation}%
+                    {deviation < 0 ? <AlertTriangle size={20} className="text-red-500"/> : <CheckCircle2 size={20} className="text-green-500"/>}
+                  </div>
+                </div>
+              </div>
+
+              {/* El Gráfico de la Curva S */}
+              <div className="card p-6">
+                <h3 className="section-title text-sm mb-6 flex items-center gap-2">
+                  Análisis de Curva S (Planificado vs. Real)
+                </h3>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={curveData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill:'#94a3b8', fontSize:12 }} dy={10} />
+                    <YAxis tick={{ fill:'#94a3b8', fontSize:12 }} domain={[0, 100]} dx={-10} />
+                    <Tooltip 
+                      contentStyle={{ background:'#1e293b', border:'1px solid #334155', borderRadius:8, color:'#f8fafc' }}
+                      formatter={(value, name) => [`${value}%`, name]}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: '20px' }}/>
+                    
+                    {/* Línea de lo Planeado (Gris) */}
+                    <Line type="monotone" dataKey="Planificado" stroke="#94a3b8" strokeWidth={3} dot={{ r: 4, fill: '#94a3b8' }} activeDot={{ r: 6 }} />
+                    
+                    {/* Línea de lo Real (Azul/Naranja dependiendo de la desviación) */}
+                    <Line type="monotone" dataKey="Real" stroke={deviation < 0 ? '#ef4444' : '#4a7fd4'} strokeWidth={4} dot={{ r: 5, fill: deviation < 0 ? '#ef4444' : '#4a7fd4' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* === PESTAÑA 3: TAREAS === */}
       {tab === 'tasks' && (
         <div className="space-y-4">
-          
           <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-800 p-3 rounded-xl border border-surface-600">
             <div className="flex flex-wrap items-center gap-3 flex-1">
               <Filter size={15} className="text-slate-400 ml-1 flex-shrink-0"/>
               
-              <select className="input max-w-[200px] border-none bg-surface-700 text-sm" 
-                value={taskFilterProject} onChange={e => setTaskFilterProject(e.target.value)}>
+              <select className="input max-w-[200px] border-none bg-surface-700 text-sm" value={taskFilterProject} onChange={e => setTaskFilterProject(e.target.value)}>
                 <option value="">🏢 Todos los Proyectos</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
 
-              <select className="input max-w-[180px] border-none bg-surface-700 text-sm" 
-                value={taskFilterUser} onChange={e => setTaskFilterUser(e.target.value)}>
+              <select className="input max-w-[180px] border-none bg-surface-700 text-sm" value={taskFilterUser} onChange={e => setTaskFilterUser(e.target.value)}>
                 <option value="">👤 Todos los Usuarios</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
 
-              <select className="input max-w-[160px] border-none bg-surface-700 text-sm" 
-                value={taskFilterStatus} onChange={e => setTaskFilterStatus(e.target.value)}>
+              <select className="input max-w-[160px] border-none bg-surface-700 text-sm" value={taskFilterStatus} onChange={e => setTaskFilterStatus(e.target.value)}>
                 <option value="">📋 Todos los Estados</option>
                 <option value="Pending">Pending</option>
                 <option value="Started">Started</option>
@@ -322,36 +394,22 @@ export default function Reports() {
               </select>
 
               <div className="relative">
-                <button
-                  onClick={() => setIsWeekMenuOpen(!isWeekMenuOpen)}
-                  className="input min-w-[140px] border-none bg-surface-700 text-sm flex items-center justify-between gap-2 h-[38px] px-3 cursor-pointer hover:bg-surface-600 transition-colors"
-                >
-                  <span className="truncate text-slate-200">
-                    {taskFilterWeeks.length === 0 ? '🗓️ Toda Semana' : `🗓️ Semanas (${taskFilterWeeks.length})`}
-                  </span>
+                <button onClick={() => setIsWeekMenuOpen(!isWeekMenuOpen)} className="input min-w-[140px] border-none bg-surface-700 text-sm flex items-center justify-between gap-2 h-[38px] px-3 hover:bg-surface-600">
+                  <span className="truncate text-slate-200">{taskFilterWeeks.length === 0 ? '🗓️ Toda Semana' : `🗓️ Semanas (${taskFilterWeeks.length})`}</span>
                   <ChevronDown size={14} className="text-slate-400 flex-shrink-0"/>
                 </button>
-
                 {isWeekMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsWeekMenuOpen(false)}></div>
                     <div className="absolute top-full left-0 mt-2 w-64 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl z-50 p-3">
                       <div className="flex justify-between items-center mb-3">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Múltiple Selección</span>
-                        {taskFilterWeeks.length > 0 && (
-                          <button className="text-xs text-brand-400 hover:text-brand-300 transition-colors" onClick={() => setTaskFilterWeeks([])}>
-                            Limpiar
-                          </button>
-                        )}
+                        {taskFilterWeeks.length > 0 && <button className="text-xs text-brand-400 hover:text-brand-300" onClick={() => setTaskFilterWeeks([])}>Limpiar</button>}
                       </div>
                       <div className="grid grid-cols-5 gap-1.5 max-h-56 overflow-y-auto pr-1">
                         {weeksOptions.map(w => (
-                          <button key={w} type="button"
-                            onClick={() => setTaskFilterWeeks(prev => prev.includes(w) ? prev.filter(x => x !== w) : [...prev, w])}
-                            className={`py-1.5 rounded-lg text-xs font-mono font-medium transition-all
-                              ${taskFilterWeeks.includes(w)
-                                ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
-                                : 'bg-surface-700 text-slate-400 hover:bg-surface-600 hover:text-white'}`}>
+                          <button key={w} type="button" onClick={() => setTaskFilterWeeks(prev => prev.includes(w) ? prev.filter(x => x !== w) : [...prev, w])}
+                            className={`py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${taskFilterWeeks.includes(w) ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20' : 'bg-surface-700 text-slate-400 hover:bg-surface-600 hover:text-white'}`}>
                             S{w}
                           </button>
                         ))}
@@ -363,30 +421,21 @@ export default function Reports() {
 
               {(taskFilterProject || taskFilterUser || taskFilterStatus || taskFilterWeeks.length > 0) && (
                 <button className="text-xs font-medium text-brand-400 hover:text-brand-300 whitespace-nowrap px-2" 
-                  onClick={() => { setTaskFilterProject(''); setTaskFilterUser(''); setTaskFilterStatus(''); setTaskFilterWeeks([]); }}>
-                  Limpiar Filtros
-                </button>
+                  onClick={() => { setTaskFilterProject(''); setTaskFilterUser(''); setTaskFilterStatus(''); setTaskFilterWeeks([]); }}>Limpiar Filtros</button>
               )}
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* BOTÓN ACTUALIZADO PARA EXCEL DE TAREAS */}
               <button className="btn-ghost text-xs border border-green-600/30 text-green-400 hover:bg-green-500/10" 
                 onClick={() => exportExcel('Reporte_Tareas_ICAA.xlsx', filteredTasks, [
-                  {label:'Tarea', key:'name'}, 
-                  {label:'Descripción', key:'clean_description'}, 
-                  {label:'Proyecto', key:'project_name'}, 
-                  {label:'Asignado a', key:'assigned_name'}, 
-                  {label:'Estado', key:'status'}, 
-                  {label:'Progreso (%)', key:'progress'}, 
-                  {label:'Semanas', key:'start_week'},
-                  {label:'Prioridad', key:'priority'}
+                  {label:'Tarea', key:'name'}, {label:'Descripción', key:'clean_description'}, {label:'Proyecto', key:'project_name'}, 
+                  {label:'Asignado a', key:'assigned_name'}, {label:'Estado', key:'status'}, {label:'Progreso (%)', key:'progress'}, 
+                  {label:'Semanas', key:'start_week'}, {label:'Prioridad', key:'priority'}
                 ])}>
                 <Download size={14} className="mr-1"/> Excel (.xlsx)
               </button>
 
-              <button className="btn-ghost text-xs border border-red-600/30 text-red-400 hover:bg-red-500/10" 
-                onClick={exportTasksToPDF} disabled={isExportingPDF}>
+              <button className="btn-ghost text-xs border border-red-600/30 text-red-400 hover:bg-red-500/10" onClick={exportTasksToPDF} disabled={isExportingPDF}>
                 {isExportingPDF ? <Spinner size="sm"/> : <FileText size={14} className="mr-1"/>}
                 {isExportingPDF ? '...' : 'PDF'}
               </button>
@@ -412,19 +461,13 @@ export default function Reports() {
                   <tr key={t.id} className="tr-hover border-b border-surface-600/30">
                     <td className="td font-semibold text-slate-200">
                       <div>{t.name}</div>
-                      <div className="text-[10px] text-slate-500 uppercase mt-0.5 font-mono">
-                        S{t.start_week} - S{t.end_week}
-                      </div>
+                      <div className="text-[10px] text-slate-500 uppercase mt-0.5 font-mono">S{t.start_week} - S{t.end_week}</div>
                     </td>
-                    <td className="td text-slate-400 text-xs">
-                      <div className="line-clamp-2" title={t.description}>{t.description || '—'}</div>
-                    </td>
+                    <td className="td text-slate-400 text-xs"><div className="line-clamp-2" title={t.description}>{t.description || '—'}</div></td>
                     <td className="td text-slate-400 text-xs">{t.project_name}</td>
                     <td className="td text-slate-400 text-xs">{t.assigned_name}</td>
                     <td className="td"><Badge status={t.status}/></td>
-                    <td className="td">
-                      <Progress value={t.progress || 0} size="sm"/>
-                    </td>
+                    <td className="td"><Progress value={t.progress || 0} size="sm"/></td>
                   </tr>
                 ))}
                 {filteredTasks.length === 0 && <tr><td colSpan={6} className="td text-center text-slate-500 py-10">No hay tareas que coincidan con los filtros</td></tr>}
@@ -434,16 +477,13 @@ export default function Reports() {
         </div>
       )}
 
-      {/* === PESTAÑA: EMPLEADOS === */}
+      {/* === PESTAÑA 4: EMPLEADOS === */}
       {tab === 'employees' && (
         <div className="space-y-4">
           <div className="flex justify-end mb-2">
-            {/* BOTÓN ACTUALIZADO PARA EXCEL DE EMPLEADOS */}
             <button className="btn-ghost text-xs flex items-center gap-2" 
               onClick={() => exportExcel('Directorio_Empleados_ICAA.xlsx', users, [
-                {label:'Nombre del Empleado', key:'name'}, 
-                {label:'Correo Electrónico', key:'email'}, 
-                {label:'Rol', key:'role'}
+                {label:'Nombre del Empleado', key:'name'}, {label:'Correo Electrónico', key:'email'}, {label:'Rol', key:'role'}
               ])}>
               <Download size={14}/> Exportar Directorio Excel
             </button>
@@ -451,22 +491,14 @@ export default function Reports() {
           <div className="table-wrap">
             <table className="w-full">
               <thead>
-                <tr>
-                  <th className="th">Nombre</th>
-                  <th className="th">Correo Electrónico</th>
-                  <th className="th">Rol</th>
-                </tr>
+                <tr><th className="th">Nombre</th><th className="th">Correo Electrónico</th><th className="th">Rol</th></tr>
               </thead>
               <tbody>
                 {users.map(u => (
                   <tr key={u.id} className="tr-hover">
                     <td className="td font-semibold text-slate-200">{u.name}</td>
                     <td className="td text-slate-400">{u.email}</td>
-                    <td className="td">
-                      <span className="px-2 py-1 rounded bg-surface-600 text-slate-300 text-xs font-semibold tracking-wider uppercase">
-                        {u.role}
-                      </span>
-                    </td>
+                    <td className="td"><span className="px-2 py-1 rounded bg-surface-600 text-slate-300 text-xs font-semibold tracking-wider uppercase">{u.role}</span></td>
                   </tr>
                 ))}
                 {users.length === 0 && <tr><td colSpan={3} className="td text-center text-slate-500 py-6">Sin empleados</td></tr>}
