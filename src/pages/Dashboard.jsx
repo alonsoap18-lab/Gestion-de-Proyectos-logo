@@ -3,13 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Progress, Badge, Spinner } from '../components/ui';
+import { differenceInCalendarDays } from 'date-fns'; // <-- Usaremos esto para calcular la semana actual
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import {
   FolderKanban, CheckSquare, Clock, AlertTriangle,
-  TrendingUp, Users, Wrench, ChevronRight
+  TrendingUp, Users, Wrench, ChevronRight, AlertOctagon
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -52,7 +53,6 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
 export default function Dashboard() {
   const { user } = useAuth();
   
-  // Usamos useQuery individualmente para cada tabla para que el Tiempo Real las actualice por separado
   const { data: projectsData = [], isLoading: loadP } = useQuery({ queryKey: ['projects'],  queryFn: async () => { const { data } = await supabase.from('projects').select('*'); return data || []; }});
   const { data: tasksData = [],    isLoading: loadT } = useQuery({ queryKey: ['tasks'],     queryFn: async () => { const { data } = await supabase.from('tasks').select('*'); return data || []; }});
   const { data: usersData = [],    isLoading: loadU } = useQuery({ queryKey: ['users'],     queryFn: async () => { const { data } = await supabase.from('users').select('*'); return data || []; }});
@@ -60,7 +60,6 @@ export default function Dashboard() {
 
   if (loadP || loadT || loadU || loadM) return <Spinner/>;
 
-  // Cálculos reactivos basados en la información en vivo
   const projects = {
     total: projectsData.length,
     active: projectsData.filter(p => p.status === 'Active').length,
@@ -84,15 +83,51 @@ export default function Dashboard() {
     status: p.status
   }));
 
-  const recentTasks = tasksData.slice(-5).reverse().map(t => {
-    const p = projectsData.find(proj => proj.id === t.project_id);
-    const u = usersData.find(user => user.id === t.assigned_to);
-    return {
-      ...t,
-      project_name: p ? p.name : 'Sin proyecto',
-      assigned_name: u ? u.name : 'Sin asignar'
-    };
-  });
+  // =========================================================================
+  // MAGIA: MOTOR DE CUELLOS DE BOTELLA
+  // =========================================================================
+  const today = new Date();
+  
+  const bottleneckTasks = tasksData
+    .map(t => {
+      if (t.status === 'Completed') return null; // Ignoramos las completadas
+
+      const p = projectsData.find(proj => proj.id === t.project_id);
+      if (!p || !p.start_date) return null; // Ignoramos si no hay fecha de inicio de proyecto
+
+      // Calcular en qué semana del proyecto estamos HOY
+      const daysSinceStart = differenceInCalendarDays(today, new Date(p.start_date));
+      const currentProjectWeek = Math.max(1, Math.ceil(daysSinceStart / 7));
+
+      let alertLevel = null;
+      let reason = '';
+
+      // Regla 1: Atraso Crítico (Ya pasó su semana de entrega)
+      if (currentProjectWeek > t.end_week) {
+        alertLevel = 'critical';
+        reason = `Atraso de ${currentProjectWeek - t.end_week} semana(s)`;
+      } 
+      // Regla 2: Riesgo de Atraso (Entrega esta semana y va por debajo del 50%)
+      else if (currentProjectWeek === t.end_week && (t.progress || 0) < 50) {
+        alertLevel = 'warning';
+        reason = `Cierra esta semana al ${t.progress || 0}%`;
+      }
+
+      if (!alertLevel) return null;
+
+      const u = usersData.find(user => user.id === t.assigned_to);
+      return {
+        ...t,
+        project_name: p.name,
+        assigned_name: u ? u.name : 'Sin asignar',
+        alertLevel,
+        reason
+      };
+    })
+    .filter(Boolean) // Quitamos los nulos
+    .sort((a, b) => (a.alertLevel === 'critical' ? -1 : 1)); // Ponemos los críticos arriba
+
+  // =========================================================================
 
   const people = { total: usersData.length };
   const machinery = { Available: machineryData.filter(m => m.status === 'Available' || m.status === 'Disponible').length };
@@ -189,6 +224,8 @@ export default function Dashboard() {
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        
+        {/* Proyectos Resumen */}
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="section-title text-sm">Estado de Proyectos</h3>
@@ -210,24 +247,53 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="card p-5">
+        {/* NUEVO PANEL: CUELLOS DE BOTELLA */}
+        <div className="card p-5 border-t-4 border-t-red-500/80">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="section-title text-sm">Actividad Reciente</h3>
-            <Link to="/tasks" className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity" style={{ color: '#4a7fd4' }}>
-              Ver todas <ChevronRight size={12}/>
-            </Link>
+            <h3 className="section-title text-sm flex items-center gap-2 text-white">
+              <AlertOctagon size={16} className="text-red-400"/>
+              Cuellos de Botella
+            </h3>
+            <span className="text-xs text-slate-400">{bottleneckTasks.length} alertas</span>
           </div>
-          <div className="space-y-2">
-            {recentTasks.map(t => (
-              <div key={t.id} className="flex items-center gap-3 py-2 border-t border-surface-600/50 first:border-0">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-slate-200 truncate">{t.name}</div>
-                  <div className="text-xs text-slate-500 truncate">{t.project_name} · {t.assigned_name}</div>
+          
+          <div className="space-y-3">
+            {bottleneckTasks.slice(0, 6).map(t => (
+              <Link key={t.id} to={`/projects/${t.project_id}`} className="block">
+                <div className={`p-3 rounded-lg border transition-colors ${
+                  t.alertLevel === 'critical' 
+                    ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20' 
+                    : 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20'
+                }`}>
+                  <div className="flex justify-between items-start mb-1">
+                    <div className="font-semibold text-slate-200 text-sm truncate pr-2">{t.name}</div>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded flex-shrink-0 ${
+                      t.alertLevel === 'critical' ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/20 text-orange-400'
+                    }`}>
+                      {t.reason}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 flex justify-between items-center mt-2">
+                    <span className="truncate">{t.project_name} • {t.assigned_name}</span>
+                    <span className="font-mono ml-2 text-[10px] bg-surface-800 px-1.5 py-0.5 rounded border border-surface-600">
+                      S{t.end_week}
+                    </span>
+                  </div>
                 </div>
-                <Badge status={t.status}/>
-              </div>
+              </Link>
             ))}
-            {recentTasks.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin actividad</p>}
+
+            {bottleneckTasks.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-6 text-center">
+                <div className="w-12 h-12 bg-green-500/10 text-green-400 rounded-full flex items-center justify-center mb-3 border border-green-500/20">
+                  <CheckSquare size={24} />
+                </div>
+                <p className="text-sm font-medium text-green-400 mb-1">¡Cronograma al día!</p>
+                <p className="text-xs text-slate-500 max-w-[200px] leading-relaxed">
+                  No hay tareas con atraso crítico en ninguno de los proyectos activos.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
