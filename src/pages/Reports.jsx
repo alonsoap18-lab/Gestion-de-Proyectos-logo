@@ -10,6 +10,7 @@ import {
 import { BarChart3, CheckSquare, Users, Download, Filter, FileText, ChevronDown } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx'; // <-- NUEVA LIBRERÍA DE EXCEL
 
 const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
@@ -23,12 +24,37 @@ const TABS = [
 
 const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress':'#f97316', Completed:'#22c55e' };
 
-function exportCSV(filename, rows, cols) {
-  const header = cols.map(c => `"${c.label}"`).join(',');
-  const body   = rows.map(r => cols.map(c => `"${(r[c.key]||'').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob   = new Blob(['\uFEFF' + header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
-  a.click();
+// ============================================================================
+// NUEVA FUNCIÓN: EXPORTAR A EXCEL REAL (.xlsx) CON FORMATO LIMPIO
+// ============================================================================
+function exportExcel(filename, rows, cols) {
+  // 1. Mapear los datos para Excel
+  const excelData = rows.map(r => {
+    const rowData = {};
+    cols.forEach(c => {
+      let val = r[c.key];
+      
+      // Formateo inteligente: Números como números reales y Semanas combinadas
+      if (c.key === 'progress' || c.key === 'budget') {
+        val = Number(val) || 0;
+      } else if (c.key === 'start_week') {
+        val = `S${r.start_week} - S${r.end_week}`;
+      }
+
+      rowData[c.label] = val !== undefined && val !== null ? val : '—';
+    });
+    return rowData;
+  });
+
+  // 2. Crear hoja y dar ancho automático a columnas
+  const ws = XLSX.utils.json_to_sheet(excelData);
+  const wscols = cols.map(c => ({ wch: Math.max(c.label.length + 5, 20) }));
+  ws['!cols'] = wscols;
+
+  // 3. Crear archivo y descargar
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Reporte_ICAA");
+  XLSX.writeFile(wb, filename);
 }
 
 export default function Reports() {
@@ -39,9 +65,9 @@ export default function Reports() {
   const [taskFilterUser, setTaskFilterUser] = useState('');
   const [taskFilterStatus, setTaskFilterStatus] = useState('');
   
-  // NUEVOS ESTADOS PARA EL FILTRO MULTIPLE DE SEMANAS
-  const [taskFilterWeeks, setTaskFilterWeeks] = useState([]); // Array para guardar [1, 3, 5]
-  const [isWeekMenuOpen, setIsWeekMenuOpen] = useState(false); // Controla si la cajita está abierta
+  // ESTADOS PARA EL FILTRO MULTIPLE DE SEMANAS (Intactos)
+  const [taskFilterWeeks, setTaskFilterWeeks] = useState([]);
+  const [isWeekMenuOpen, setIsWeekMenuOpen] = useState(false);
   
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
@@ -72,18 +98,18 @@ export default function Reports() {
     { name:'Completadas', value: tasks.filter(t=>t.status==='Completed').length,  color: TASK_COLORS.Completed },
   ].filter(d => d.value > 0);
 
-  // === CALCULAMOS LA SEMANA MÁXIMA PARA CREAR LOS BOTONCITOS S1, S2... ===
+  // === CALCULAMOS LA SEMANA MÁXIMA PARA CREAR LOS BOTONCITOS ===
   const maxWeek = Math.max(...tasks.map(t => t.end_week || 1), 1);
   const weeksOptions = Array.from({ length: maxWeek }, (_, i) => i + 1);
 
-  // 4. PROCESAMIENTO TAREAS (Pestaña Tareas)
+  // 4. PROCESAMIENTO TAREAS
   const filteredTasks = tasks
     .filter(t => {
       if (taskFilterProject && t.project_id !== taskFilterProject) return false;
       if (taskFilterUser && t.assigned_to !== taskFilterUser) return false;
       if (taskFilterStatus && t.status !== taskFilterStatus) return false;
       
-      // Lógica Multiple: Si la tarea cruza por AL MENOS UNA de las semanas seleccionadas
+      // Lógica Multiple Intacta
       if (taskFilterWeeks.length > 0) {
         const matches = taskFilterWeeks.some(w => w >= t.start_week && w <= t.end_week);
         if (!matches) return false;
@@ -113,7 +139,6 @@ export default function Reports() {
     setIsExportingPDF(true);
     try {
       const doc = new jsPDF('landscape');
-
       const logoImg = new Image();
       logoImg.src = '/icaa-logo.png'; 
 
@@ -122,9 +147,7 @@ export default function Reports() {
         logoImg.onerror = resolve; 
       });
 
-      if (logoImg.width > 0) {
-        doc.addImage(logoImg, 'PNG', 14, 10, 25, 25);
-      }
+      if (logoImg.width > 0) doc.addImage(logoImg, 'PNG', 14, 10, 25, 25);
 
       doc.setFontSize(20);
       doc.setTextColor(45, 79, 160);
@@ -138,7 +161,6 @@ export default function Reports() {
       doc.setFontSize(10);
       doc.text(`Fecha de generación: ${fechaActual}`, logoImg.width > 0 ? 45 : 14, 33);
 
-      // Mostrar TODOS los filtros activos en el reporte PDF
       let subtituloFiltros = "";
       if (taskFilterProject) {
         const pName = projects.find(x => x.id === taskFilterProject)?.name;
@@ -163,36 +185,17 @@ export default function Reports() {
 
       const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Semanas", "Descripción"]];
       const tableData = filteredTasks.map(t => [
-        t.name,
-        t.project_name,
-        t.assigned_name,
-        t.status,
-        `${t.progress || 0}%`,
-        `S${t.start_week} - S${t.end_week}`,
-        t.clean_description
+        t.name, t.project_name, t.assigned_name, t.status, `${t.progress || 0}%`, `S${t.start_week} - S${t.end_week}`, t.clean_description
       ]);
 
       autoTable(doc, {
-        head: tableHeaders,
-        body: tableData,
-        startY: subtituloFiltros ? 48 : 42,
-        theme: 'striped',
+        head: tableHeaders, body: tableData, startY: subtituloFiltros ? 48 : 42, theme: 'striped',
         headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [245, 247, 250] },
         styles: { fontSize: 9, cellPadding: 4, textColor: [51, 65, 85] },
-        columnStyles: {
-          0: { cellWidth: 40 },
-          1: { cellWidth: 35 },
-          2: { cellWidth: 35 },
-          3: { cellWidth: 25 },
-          4: { cellWidth: 20 },
-          5: { cellWidth: 20 },
-          6: { cellWidth: 'auto' }
-        },
+        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 35 }, 3: { cellWidth: 25 }, 4: { cellWidth: 20 }, 5: { cellWidth: 20 }, 6: { cellWidth: 'auto' } },
         didDrawPage: function (data) {
-          doc.setFontSize(8);
-          doc.setTextColor(150);
-          doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
+          doc.setFontSize(8); doc.setTextColor(150); doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
         }
       });
 
@@ -204,8 +207,7 @@ export default function Reports() {
       doc.save(`${filename}.pdf`);
 
     } catch (error) {
-      alert("Hubo un error al generar el PDF.");
-      console.error(error);
+      alert("Hubo un error al generar el PDF."); console.error(error);
     } finally {
       setIsExportingPDF(false);
     }
@@ -274,11 +276,17 @@ export default function Reports() {
           </div>
 
           <div className="flex justify-end">
+            {/* BOTÓN ACTUALIZADO PARA EXCEL DE PROYECTOS */}
             <button className="btn-ghost text-xs flex items-center gap-2" 
-              onClick={() => exportCSV('proyectos.csv', projects, [
-                {label:'Nombre', key:'name'}, {label:'Cliente', key:'client'}, {label:'Estado', key:'status'}, {label:'Progreso', key:'progress'}, {label:'Presupuesto', key:'budget'}
+              onClick={() => exportExcel('Proyectos_ICAA.xlsx', projects, [
+                {label:'Nombre', key:'name'}, 
+                {label:'Cliente', key:'client'}, 
+                {label:'Ubicación', key:'location'},
+                {label:'Estado', key:'status'}, 
+                {label:'Progreso (%)', key:'progress'}, 
+                {label:'Presupuesto ($)', key:'budget'}
               ])}>
-              <Download size={14}/> Exportar Proyectos CSV
+              <Download size={14}/> Exportar Proyectos Excel
             </button>
           </div>
         </div>
@@ -288,7 +296,6 @@ export default function Reports() {
       {tab === 'tasks' && (
         <div className="space-y-4">
           
-          {/* BARRA DE FILTROS Y ACCIONES */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-800 p-3 rounded-xl border border-surface-600">
             <div className="flex flex-wrap items-center gap-3 flex-1">
               <Filter size={15} className="text-slate-400 ml-1 flex-shrink-0"/>
@@ -314,7 +321,6 @@ export default function Reports() {
                 <option value="Completed">Completed</option>
               </select>
 
-              {/* MENÚ FLOTANTE MÚLTIPLE PARA SEMANAS */}
               <div className="relative">
                 <button
                   onClick={() => setIsWeekMenuOpen(!isWeekMenuOpen)}
@@ -328,10 +334,7 @@ export default function Reports() {
 
                 {isWeekMenuOpen && (
                   <>
-                    {/* Fondo invisible para cerrar al hacer clic afuera */}
                     <div className="fixed inset-0 z-40" onClick={() => setIsWeekMenuOpen(false)}></div>
-                    
-                    {/* Cuadro desplegable (Pop-over) */}
                     <div className="absolute top-full left-0 mt-2 w-64 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl z-50 p-3">
                       <div className="flex justify-between items-center mb-3">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Múltiple Selección</span>
@@ -341,8 +344,6 @@ export default function Reports() {
                           </button>
                         )}
                       </div>
-                      
-                      {/* Cuadrícula de Semanas (S1, S2, S3...) */}
                       <div className="grid grid-cols-5 gap-1.5 max-h-56 overflow-y-auto pr-1">
                         {weeksOptions.map(w => (
                           <button key={w} type="button"
@@ -369,17 +370,19 @@ export default function Reports() {
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* BOTÓN ACTUALIZADO PARA EXCEL DE TAREAS */}
               <button className="btn-ghost text-xs border border-green-600/30 text-green-400 hover:bg-green-500/10" 
-                onClick={() => exportCSV('tareas_reporte.csv', filteredTasks, [
+                onClick={() => exportExcel('Reporte_Tareas_ICAA.xlsx', filteredTasks, [
                   {label:'Tarea', key:'name'}, 
                   {label:'Descripción', key:'clean_description'}, 
                   {label:'Proyecto', key:'project_name'}, 
-                  {label:'Asignado', key:'assigned_name'}, 
+                  {label:'Asignado a', key:'assigned_name'}, 
                   {label:'Estado', key:'status'}, 
-                  {label:'Progreso', key:'progress'}, 
-                  {label:'Semanas', key:'start_week'}
+                  {label:'Progreso (%)', key:'progress'}, 
+                  {label:'Semanas', key:'start_week'},
+                  {label:'Prioridad', key:'priority'}
                 ])}>
-                <Download size={14} className="mr-1"/> Excel
+                <Download size={14} className="mr-1"/> Excel (.xlsx)
               </button>
 
               <button className="btn-ghost text-xs border border-red-600/30 text-red-400 hover:bg-red-500/10" 
@@ -435,11 +438,14 @@ export default function Reports() {
       {tab === 'employees' && (
         <div className="space-y-4">
           <div className="flex justify-end mb-2">
+            {/* BOTÓN ACTUALIZADO PARA EXCEL DE EMPLEADOS */}
             <button className="btn-ghost text-xs flex items-center gap-2" 
-              onClick={() => exportCSV('empleados.csv', users, [
-                {label:'Nombre', key:'name'}, {label:'Email', key:'email'}, {label:'Rol', key:'role'}
+              onClick={() => exportExcel('Directorio_Empleados_ICAA.xlsx', users, [
+                {label:'Nombre del Empleado', key:'name'}, 
+                {label:'Correo Electrónico', key:'email'}, 
+                {label:'Rol', key:'role'}
               ])}>
-              <Download size={14}/> Exportar Empleados CSV
+              <Download size={14}/> Exportar Directorio Excel
             </button>
           </div>
           <div className="table-wrap">
