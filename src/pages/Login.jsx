@@ -2,23 +2,23 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
-import { useAuth } from '../context/AuthContext'; // <-- Usamos el AuthContext unificado
+import { useAuth } from '../context/AuthContext'; 
 
 export default function Login() {
-  const [email, setEmail] = useState('admin@grupoicaa.com');
-  const [password, setPassword] = useState('ICAAadmin2026');
+  // Los campos ahora inician vacíos por seguridad
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
-  const { login } = useAuth(); // Sacamos la función login de tu contexto
+  const { login } = useAuth(); 
 
   async function submit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Usamos la función de login que ya configuramos en AuthContext
     const res = await login(email, password);
 
     if (!res.ok) {
@@ -27,7 +27,6 @@ export default function Login() {
       return;
     }
 
-    // Si todo salió bien, empujamos al usuario al Dashboard INMEDIATAMENTE
     setLoading(false);
     navigate('/');
   }
@@ -59,7 +58,7 @@ export default function Login() {
               className="w-full h-full object-contain"
             />
           </div>
-          <p className="text-slate-500 text-xs uppercase tracking-[0.3em] font-semibold">
+          <p className="text-slate-500 text-xs uppercase tracking-[0.3em] font-semibold text-center">
             Sistema de Gestión de Construcción
           </p>
         </div>
@@ -118,20 +117,6 @@ export default function Login() {
               {loading ? 'Autenticando...' : 'Ingresar al Sistema'}
             </button>
           </form>
-
-          {/* Credenciales */}
-          <div className="mt-5 pt-5 border-t border-surface-600">
-            <div className="bg-surface-700 rounded-lg p-3 font-mono text-xs space-y-1 border border-surface-600">
-              <div>
-                <span className="text-slate-500">usuario: </span>
-                <span className="text-[#4a7fd4]">admin@grupoicaa.com</span>
-              </div>
-              <div>
-                <span className="text-slate-500">clave: </span>
-                <span className="text-[#4a7fd4]">ICAAadmin2026</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-6">
