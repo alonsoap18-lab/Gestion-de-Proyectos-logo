@@ -1,0 +1,20 @@
+{
+  "short_name": "ICAA App",
+  "name": "Grupo ICAA - Gestión de Proyectos",
+  "icons": [
+    {
+      "src": "/icaa-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icaa-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a"
+}
