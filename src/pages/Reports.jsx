@@ -191,7 +191,7 @@ export default function Reports() {
   const deviation = actualProgress - expectedProgress;
 
   // ============================================================================
-  // EXPORTAR A PDF (AHORA INCLUYE VENCIMIENTOS)
+  // EXPORTAR A PDF (MANTIENE SEMANAS Y AGREGA VENCIMIENTO)
   // ============================================================================
   const exportTasksToPDF = async () => {
     setIsExportingPDF(true);
@@ -214,16 +214,16 @@ export default function Reports() {
       if (taskFilterWeeks.length > 0) subtituloFiltros += `Semanas: ${[...taskFilterWeeks].sort((a,b) => a - b).map(w => `S${w}`).join(', ')}`;
       if (subtituloFiltros) { doc.setTextColor(249, 115, 22); doc.text(`Filtros: ${subtituloFiltros}`, 14, 42); }
 
-      // CAMBIO AQUÍ: Cambiamos "Semanas" por "Vencimiento"
-      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Vencimiento", "Descripción"]];
-      const tableData = filteredTasks.map(t => [ t.name, t.project_name, t.assigned_name, t.status, `${t.progress || 0}%`, t.due_date, t.clean_description ]);
+      // AQUÍ ESTÁN AMBAS COLUMNAS
+      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Semanas", "Vencimiento", "Estado", "Progreso", "Descripción"]];
+      const tableData = filteredTasks.map(t => [ t.name, t.project_name, t.assigned_name, `S${t.start_week} - S${t.end_week}`, t.due_date, t.status, `${t.progress || 0}%`, t.clean_description ]);
 
       autoTable(doc, {
         head: tableHeaders, body: tableData, startY: subtituloFiltros ? 48 : 42, theme: 'striped',
         headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [245, 247, 250] },
         styles: { fontSize: 9, cellPadding: 4, textColor: [51, 65, 85] },
-        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 35 }, 3: { cellWidth: 25 }, 4: { cellWidth: 20 }, 5: { cellWidth: 25 }, 6: { cellWidth: 'auto' } },
+        columnStyles: { 0: { cellWidth: 35 }, 1: { cellWidth: 35 }, 2: { cellWidth: 30 }, 3: { cellWidth: 20 }, 4: { cellWidth: 22 }, 5: { cellWidth: 20 }, 6: { cellWidth: 16 }, 7: { cellWidth: 'auto' } },
         didDrawPage: function (data) { doc.setFontSize(8); doc.setTextColor(150); doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10); }
       });
 
@@ -444,7 +444,7 @@ export default function Reports() {
                 onClick={() => exportExcel('Reporte_Tareas_ICAA.xlsx', filteredTasks, [
                   {label:'Tarea', key:'name'}, {label:'Descripción', key:'clean_description'}, {label:'Proyecto', key:'project_name'}, 
                   {label:'Asignado a', key:'assigned_name'}, {label:'Estado', key:'status'}, {label:'Progreso (%)', key:'progress'}, 
-                  {label:'Vencimiento', key:'due_date'}, {label:'Prioridad', key:'priority'} // CAMBIADO PARA EXCEL
+                  {label:'Semanas', key:'start_week'}, {label:'Vencimiento', key:'due_date'}, {label:'Prioridad', key:'priority'} // AMBAS INCLUIDAS
                 ])}>
                 <Download size={14} className="mr-1"/> Excel (.xlsx)
               </button>
@@ -462,26 +462,28 @@ export default function Reports() {
             <table className="w-full min-w-[900px]">
               <thead>
                 <tr>
-                  <th className="th w-1/4">Tarea</th>
+                  <th className="th w-1/5">Tarea</th>
                   <th className="th w-1/4">Descripción</th>
                   <th className="th">Proyecto</th>
                   <th className="th">Asignado</th>
+                  <th className="th text-center">Semanas</th>
+                  <th className="th">Vencimiento</th>
                   <th className="th">Estado</th>
-                  <th className="th">Vencimiento</th> {/* NUEVA COLUMNA VISUAL */}
                   <th className="th w-28">Progreso</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTasks.map(t => (
                   <tr key={t.id} className="tr-hover border-b border-surface-600/30">
-                    <td className="td font-semibold text-slate-200">
-                      <div>{t.name}</div>
-                      <div className="text-[10px] text-slate-500 uppercase mt-0.5 font-mono">S{t.start_week} - S{t.end_week}</div>
-                    </td>
+                    <td className="td font-semibold text-slate-200">{t.name}</td>
                     <td className="td text-slate-400 text-xs"><div className="line-clamp-2" title={t.description}>{t.description || '—'}</div></td>
                     <td className="td text-slate-400 text-xs">{t.project_name}</td>
                     <td className="td text-slate-400 text-xs">{t.assigned_name}</td>
-                    <td className="td"><Badge status={t.status}/></td>
+                    <td className="td font-mono text-center">
+                      <span className="bg-surface-600 text-slate-300 px-2 py-0.5 rounded text-xs font-semibold">
+                        S{t.start_week} - S{t.end_week}
+                      </span>
+                    </td>
                     <td className="td text-xs">
                       {t.due_date !== 'S/F' ? (
                         <div className="flex items-center gap-1.5 text-brand-400 font-semibold capitalize">
@@ -491,10 +493,11 @@ export default function Reports() {
                         <span className="text-slate-500 italic">S/F</span>
                       )}
                     </td>
+                    <td className="td"><Badge status={t.status}/></td>
                     <td className="td"><Progress value={t.progress || 0} size="sm"/></td>
                   </tr>
                 ))}
-                {filteredTasks.length === 0 && <tr><td colSpan={7} className="td text-center text-slate-500 py-10">No hay tareas que coincidan con los filtros</td></tr>}
+                {filteredTasks.length === 0 && <tr><td colSpan={8} className="td text-center text-slate-500 py-10">No hay tareas que coincidan con los filtros</td></tr>}
               </tbody>
             </table>
           </div>
