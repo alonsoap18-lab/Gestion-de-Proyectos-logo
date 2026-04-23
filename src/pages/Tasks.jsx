@@ -3,30 +3,42 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
-import { Plus, Pencil, Trash2, CheckSquare, Filter, User } from 'lucide-react';
-import { useAuth } from '../context/AuthContext'; // <-- IMPORTAMOS LA SESIÓN
+import { Plus, Pencil, Trash2, CheckSquare, Filter, User, CalendarDays } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { addWeeks, nextFriday, format, isValid, parseISO, startOfWeek, isFriday } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 const BLANK = { name:'', project_id:'', assigned_to:'', start_week:1, end_week:2, status:'Pending', progress:0, priority:'Medium', description:'' };
 
+// Función matemática: Calcula el viernes de la semana correspondiente
+const getDueDate = (projectStartDate, endWeek) => {
+  if (!projectStartDate) return null;
+  const startDate = parseISO(projectStartDate);
+  if (!isValid(startDate)) return null;
+
+  const targetWeekDate = addWeeks(startDate, Math.max(0, endWeek - 1));
+  const weekStart = startOfWeek(targetWeekDate, { weekStartsOn: 1 });
+  const fridayDate = isFriday(targetWeekDate) ? targetWeekDate : nextFriday(weekStart);
+  
+  return format(fridayDate, "E, dd MMM", { locale: es });
+};
+
 export default function Tasks() {
   const qc = useQueryClient();
-  const { user } = useAuth(); // <-- OBTENEMOS AL USUARIO
+  const { user } = useAuth(); 
 
   const [modal,   setModal]   = useState(false);
   const [form,    setForm]    = useState(BLANK);
   const [delTgt,  setDelTgt]  = useState(null);
   
-  // Estados de los filtros
   const [fpj,     setFpj]     = useState('');
   const [fst,     setFst]     = useState('');
   const [fpr,     setFpr]     = useState('');
   const [fusr,    setFusr]    = useState('');
 
-  // --- DEFINIMOS LOS PERMISOS GLOBALES ---
   const isManager = ['Admin', 'Engineer', 'Supervisor'].includes(user?.role);
   const isObserver = user?.role === 'Observer';
 
-  // 1. LEER DATOS DESDE SUPABASE
   const { data: tasks    = [], isLoading } = useQuery({ 
     queryKey:['tasks'],    
     queryFn: async () => { 
@@ -52,47 +64,34 @@ export default function Tasks() {
     }
   });
 
-  // 2. CREAR O ACTUALIZAR TAREA EN SUPABASE
   const save = useMutation({
     mutationFn: async (d) => {
       const dataToSave = {
-        name: d.name,
-        project_id: d.project_id,
-        assigned_to: d.assigned_to || null,
-        start_week: d.start_week,
-        end_week: d.end_week,
-        status: d.status,
-        progress: d.progress,
-        priority: d.priority,
-        description: d.description || null
+        name: d.name, project_id: d.project_id, assigned_to: d.assigned_to || null,
+        start_week: d.start_week, end_week: d.end_week, status: d.status,
+        progress: d.progress, priority: d.priority, description: d.description || null
       };
 
       if (d.id) {
         const { data, error } = await supabase.from('tasks').update(dataToSave).eq('id', d.id).select();
-        if (error) throw error;
-        return data;
+        if (error) throw error; return data;
       } else {
         const { data, error } = await supabase.from('tasks').insert([dataToSave]).select();
-        if (error) throw error;
-        return data;
+        if (error) throw error; return data;
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setModal(false); },
-    onError: (error) => alert(`Error al guardar la tarea: ${error.message}`)
+    onError: (error) => alert(`Error al guardar: ${error.message}`)
   });
 
-  // 3. ELIMINAR TAREA EN SUPABASE
   const del = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('tasks').delete().eq('id', id);
-      if (error) throw error;
-      return true;
+      if (error) throw error; return true;
     },
     onSuccess:  () => { qc.invalidateQueries(['tasks']); qc.invalidateQueries(['projects']); setDelTgt(null); },
-    onError: (error) => alert(`Error al eliminar: ${error.message}`)
   });
 
-  // Procesamiento de datos para la vista
   const filtered = tasks.filter(t => {
     if (fpj  && t.project_id  !== fpj)  return false;
     if (fst  && t.status      !== fst)  return false;
@@ -105,11 +104,11 @@ export default function Tasks() {
     return {
       ...t,
       project_name: p ? p.name : 'Sin proyecto',
+      project_start_date: p ? p.start_date : null,
       assigned_name: u ? u.name : '—'
     };
-  });
+  }).sort((a, b) => a.start_week - b.start_week || a.end_week - b.end_week); // <-- ORDENADAS LÓGICAMENTE
 
-  // Group by project
   const grouped = filtered.reduce((acc, t) => {
     const key = t.project_name;
     (acc[key] = acc[key] || []).push(t);
@@ -128,7 +127,6 @@ export default function Tasks() {
           <h1 className="page-title">Tareas</h1>
           <p className="text-slate-400 text-sm mt-0.5">{filtered.length} tarea(s) visibles</p>
         </div>
-        {/* CANDADO: Solo los Managers pueden crear Tareas desde cero */}
         {isManager && (
           <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
             <Plus size={15}/> Nueva Tarea
@@ -136,7 +134,6 @@ export default function Tasks() {
         )}
       </div>
 
-      {/* KPI pills */}
       <div className="grid grid-cols-4 gap-3 mb-5">
         {STATUSES.map(s => {
           const cnt = filtered.filter(t => t.status === s).length;
@@ -152,7 +149,6 @@ export default function Tasks() {
         })}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-5 items-center bg-surface-800 p-2 rounded-xl border border-surface-600">
         <Filter size={15} className="text-slate-400 ml-2"/>
         
@@ -160,17 +156,14 @@ export default function Tasks() {
           <option value="">🏢 Todos los proyectos</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-
         <select className="input max-w-[180px] border-none bg-surface-700" value={fusr} onChange={e => setFusr(e.target.value)}>
           <option value="">👤 Todos los usuarios</option>
           {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
-
         <select className="input max-w-[160px] border-none bg-surface-700" value={fst} onChange={e => setFst(e.target.value)}>
           <option value="">📋 Todos los estados</option>
           {STATUSES.map(s => <option key={s}>{s}</option>)}
         </select>
-        
         <select className="input max-w-[150px] border-none bg-surface-700" value={fpr} onChange={e => setFpr(e.target.value)}>
           <option value="">⚡ Toda prioridad</option>
           <option>High</option><option>Medium</option><option>Low</option>
@@ -178,13 +171,10 @@ export default function Tasks() {
 
         {(fpj||fst||fpr||fusr) && (
           <button className="btn-ghost text-xs ml-auto text-brand-400 hover:text-brand-300" 
-            onClick={() => { setFpj(''); setFst(''); setFpr(''); setFusr(''); }}>
-            Limpiar filtros
-          </button>
+            onClick={() => { setFpj(''); setFst(''); setFpr(''); setFusr(''); }}>Limpiar filtros</button>
         )}
       </div>
 
-      {/* Grouped table */}
       {Object.entries(grouped).map(([projName, projTasks]) => (
         <div key={projName} className="table-wrap mb-4">
           <div className="flex items-center gap-2 px-4 py-3 bg-surface-700 border-b border-surface-600">
@@ -197,21 +187,18 @@ export default function Tasks() {
               <tr>
                 <th className="th">Tarea</th>
                 <th className="th">Asignado</th>
-                <th className="th">Semanas</th>
+                <th className="th text-center">Semanas</th>
+                <th className="th">Vencimiento</th> {/* NUEVA COLUMNA */}
                 <th className="th">Estado</th>
                 <th className="th w-36">Progreso</th>
                 <th className="th">Prioridad</th>
-                {/* Ocultamos la columna vacía de acciones para los observers */}
                 {!isObserver && <th className="th w-20"/>}
               </tr>
             </thead>
             <tbody>
               {projTasks.map(t => {
-                
-                // CANDADO ESPECÍFICO DE LA FILA:
-                // ¿Puede este usuario editar ESTA tarea específica?
-                // Sí, si es Manager, O si él es el asignado a la tarea (y no es Observer).
                 const canEditThisTask = !isObserver && (isManager || t.assigned_to === user?.id);
+                const dueDate = getDueDate(t.project_start_date, t.end_week);
 
                 return (
                   <tr key={t.id} className="tr-hover">
@@ -219,26 +206,37 @@ export default function Tasks() {
                     <td className="td text-slate-400 text-xs flex items-center gap-1 mt-1.5">
                       <User size={12} className="text-slate-500"/> {t.assigned_name || '—'}
                     </td>
-                    <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
+                    <td className="td font-mono text-center">
+                      <span className="bg-surface-600 text-slate-300 px-2 py-0.5 rounded text-xs font-semibold">
+                        S{t.start_week} - S{t.end_week}
+                      </span>
+                    </td>
+                    <td className="td text-xs">
+                      {dueDate ? (
+                        <div className="flex items-center gap-1.5 text-brand-400 font-semibold capitalize">
+                          <CalendarDays size={13}/> {dueDate}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500 italic">S/F</span>
+                      )}
+                    </td>
                     <td className="td"><Badge status={t.status}/></td>
                     <td className="td"><Progress value={t.progress} size="sm"/></td>
                     <td className="td">
-                      <span className={`text-xs font-semibold
-                        ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded
+                        ${t.priority==='High'?'bg-red-500/10 text-red-400':t.priority==='Low'?'bg-slate-500/10 text-slate-400':'bg-yellow-500/10 text-yellow-400'}`}>
                         {t.priority}
                       </span>
                     </td>
                     
-                    {/* Botones de Acción de la Fila */}
                     {!isObserver && (
                       <td className="td">
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 justify-end">
                           {canEditThisTask && (
                             <button className="btn-icon" onClick={() => { setForm({...t}); setModal(true); }}>
                               <Pencil size={12}/>
                             </button>
                           )}
-                          {/* Solo los Managers pueden eliminar tareas */}
                           {isManager && (
                             <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(t)}>
                               <Trash2 size={12}/>
@@ -267,9 +265,6 @@ export default function Tasks() {
         />
       )}
 
-      {/* Form modal */}
-      {/* CANDADO DEL MODAL: Si eres Worker, te bloqueamos los campos que no deberías tocar 
-          (solo puedes mover el progreso, el estado y tu descripción, pero no el nombre ni las fechas) */}
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? 'Editar Tarea' : 'Nueva Tarea'} size="lg">
         <form onSubmit={e => { e.preventDefault(); save.mutate(form); }} className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
@@ -301,7 +296,6 @@ export default function Tasks() {
               onChange={e => setForm({...form, end_week: parseInt(e.target.value)||2})}/>
           </Field>
           
-          {/* ESTOS SÍ LOS PUEDE EDITAR EL WORKER (Progreso y Estado) */}
           <Field label="Estado">
             <select className="input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
               <option>Pending</option><option>Started</option><option>In Progress</option><option>Completed</option>
@@ -335,7 +329,6 @@ export default function Tasks() {
         </form>
       </Modal>
 
-      {/* Solo Managers eliminan tareas */}
       {isManager && (
         <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
           title="Eliminar Tarea" message={`¿Eliminar "${delTgt?.name}"?`}/>
