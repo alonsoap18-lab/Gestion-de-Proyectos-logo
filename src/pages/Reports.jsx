@@ -3,15 +3,16 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Spinner, Badge, Progress } from '../components/ui';
-import { differenceInCalendarDays } from 'date-fns'; // <-- Usado para calcular la semana actual
+import { differenceInCalendarDays, addWeeks, nextFriday, format, isValid, parseISO, startOfWeek, isFriday } from 'date-fns';
+import { es } from 'date-fns/locale';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
-  LineChart, Line, CartesianGrid // <-- Nuevos gráficos para la Curva S
+  LineChart, Line, CartesianGrid 
 } from 'recharts';
 import { 
   BarChart3, CheckSquare, Users, Download, Filter, 
-  FileText, ChevronDown, TrendingUp, AlertTriangle, CheckCircle2 
+  FileText, ChevronDown, TrendingUp, AlertTriangle, CheckCircle2, CalendarDays 
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -21,15 +22,27 @@ const TIP = (p) => (
   <Tooltip {...p} contentStyle={{ background:'#1c2333', border:'1px solid #2d3a4f', borderRadius:8, color:'#e2e8f0', fontSize:12 }}/>
 );
 
-// NUEVA PESTAÑA AGREGADA: CURVA S
 const TABS = [
   { id:'projects',  label:'Proyectos',  icon: BarChart3  },
   { id:'curve',     label:'Curva S',    icon: TrendingUp }, 
   { id:'tasks',     label:'Tareas',     icon: CheckSquare },
-  { id:'employees', label:'Empleados',  icon: Users       },
+  { id:'employees', label:'Empleados',  icon: Users      },
 ];
 
 const TASK_COLORS = { Pending:'#64748b', Started:'#4a7fd4', 'In Progress':'#f97316', Completed:'#22c55e' };
+
+// Función matemática: Calcula el viernes de la semana correspondiente
+const getDueDate = (projectStartDate, endWeek) => {
+  if (!projectStartDate) return null;
+  const startDate = parseISO(projectStartDate);
+  if (!isValid(startDate)) return null;
+
+  const targetWeekDate = addWeeks(startDate, Math.max(0, endWeek - 1));
+  const weekStart = startOfWeek(targetWeekDate, { weekStartsOn: 1 });
+  const fridayDate = isFriday(targetWeekDate) ? targetWeekDate : nextFriday(weekStart);
+  
+  return format(fridayDate, "E, dd MMM", { locale: es });
+};
 
 // ============================================================================
 // FUNCIÓN: EXPORTAR A EXCEL (.xlsx)
@@ -114,8 +127,13 @@ export default function Reports() {
     .map(t => {
       const p = projects.find(proj => proj.id === t.project_id);
       const u = users.find(user => user.id === t.assigned_to);
+      const dueDate = getDueDate(p?.start_date, t.end_week);
+      
       return { 
-        ...t, project_name: p ? p.name : '—', assigned_name: u ? u.name : '—',
+        ...t, 
+        project_name: p ? p.name : '—', 
+        assigned_name: u ? u.name : '—',
+        due_date: dueDate || 'S/F',
         clean_description: t.description ? t.description.replace(/\n/g, ' ') : 'Sin descripción'
       };
     })
@@ -173,7 +191,7 @@ export default function Reports() {
   const deviation = actualProgress - expectedProgress;
 
   // ============================================================================
-  // EXPORTAR A PDF
+  // EXPORTAR A PDF (AHORA INCLUYE VENCIMIENTOS)
   // ============================================================================
   const exportTasksToPDF = async () => {
     setIsExportingPDF(true);
@@ -196,15 +214,16 @@ export default function Reports() {
       if (taskFilterWeeks.length > 0) subtituloFiltros += `Semanas: ${[...taskFilterWeeks].sort((a,b) => a - b).map(w => `S${w}`).join(', ')}`;
       if (subtituloFiltros) { doc.setTextColor(249, 115, 22); doc.text(`Filtros: ${subtituloFiltros}`, 14, 42); }
 
-      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Semanas", "Descripción"]];
-      const tableData = filteredTasks.map(t => [ t.name, t.project_name, t.assigned_name, t.status, `${t.progress || 0}%`, `S${t.start_week} - S${t.end_week}`, t.clean_description ]);
+      // CAMBIO AQUÍ: Cambiamos "Semanas" por "Vencimiento"
+      const tableHeaders = [["Tarea", "Proyecto", "Asignado a", "Estado", "Progreso", "Vencimiento", "Descripción"]];
+      const tableData = filteredTasks.map(t => [ t.name, t.project_name, t.assigned_name, t.status, `${t.progress || 0}%`, t.due_date, t.clean_description ]);
 
       autoTable(doc, {
         head: tableHeaders, body: tableData, startY: subtituloFiltros ? 48 : 42, theme: 'striped',
         headStyles: { fillColor: [45, 79, 160], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [245, 247, 250] },
         styles: { fontSize: 9, cellPadding: 4, textColor: [51, 65, 85] },
-        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 35 }, 3: { cellWidth: 25 }, 4: { cellWidth: 20 }, 5: { cellWidth: 20 }, 6: { cellWidth: 'auto' } },
+        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 35 }, 3: { cellWidth: 25 }, 4: { cellWidth: 20 }, 5: { cellWidth: 25 }, 6: { cellWidth: 'auto' } },
         didDrawPage: function (data) { doc.setFontSize(8); doc.setTextColor(150); doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10); }
       });
 
@@ -287,7 +306,7 @@ export default function Reports() {
         </div>
       )}
 
-      {/* === PESTAÑA 2: CURVA S (NUEVA) === */}
+      {/* === PESTAÑA 2: CURVA S === */}
       {tab === 'curve' && (
         <div className="space-y-5">
           
@@ -314,7 +333,6 @@ export default function Reports() {
             </div>
           ) : (
             <>
-              {/* Tarjetas de Resumen de la Curva */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="card p-4 border-l-4 border-l-surface-500">
                   <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Semana Actual</div>
@@ -339,7 +357,6 @@ export default function Reports() {
                 </div>
               </div>
 
-              {/* El Gráfico de la Curva S */}
               <div className="card p-6">
                 <h3 className="section-title text-sm mb-6 flex items-center gap-2">
                   Análisis de Curva S (Planificado vs. Real)
@@ -355,10 +372,7 @@ export default function Reports() {
                     />
                     <Legend wrapperStyle={{ paddingTop: '20px' }}/>
                     
-                    {/* Línea de lo Planeado (Gris) */}
                     <Line type="monotone" dataKey="Planificado" stroke="#94a3b8" strokeWidth={3} dot={{ r: 4, fill: '#94a3b8' }} activeDot={{ r: 6 }} />
-                    
-                    {/* Línea de lo Real (Azul/Naranja dependiendo de la desviación) */}
                     <Line type="monotone" dataKey="Real" stroke={deviation < 0 ? '#ef4444' : '#4a7fd4'} strokeWidth={4} dot={{ r: 5, fill: deviation < 0 ? '#ef4444' : '#4a7fd4' }} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -430,7 +444,7 @@ export default function Reports() {
                 onClick={() => exportExcel('Reporte_Tareas_ICAA.xlsx', filteredTasks, [
                   {label:'Tarea', key:'name'}, {label:'Descripción', key:'clean_description'}, {label:'Proyecto', key:'project_name'}, 
                   {label:'Asignado a', key:'assigned_name'}, {label:'Estado', key:'status'}, {label:'Progreso (%)', key:'progress'}, 
-                  {label:'Semanas', key:'start_week'}, {label:'Prioridad', key:'priority'}
+                  {label:'Vencimiento', key:'due_date'}, {label:'Prioridad', key:'priority'} // CAMBIADO PARA EXCEL
                 ])}>
                 <Download size={14} className="mr-1"/> Excel (.xlsx)
               </button>
@@ -449,10 +463,11 @@ export default function Reports() {
               <thead>
                 <tr>
                   <th className="th w-1/4">Tarea</th>
-                  <th className="th w-1/3">Descripción</th>
+                  <th className="th w-1/4">Descripción</th>
                   <th className="th">Proyecto</th>
                   <th className="th">Asignado</th>
                   <th className="th">Estado</th>
+                  <th className="th">Vencimiento</th> {/* NUEVA COLUMNA VISUAL */}
                   <th className="th w-28">Progreso</th>
                 </tr>
               </thead>
@@ -467,10 +482,19 @@ export default function Reports() {
                     <td className="td text-slate-400 text-xs">{t.project_name}</td>
                     <td className="td text-slate-400 text-xs">{t.assigned_name}</td>
                     <td className="td"><Badge status={t.status}/></td>
+                    <td className="td text-xs">
+                      {t.due_date !== 'S/F' ? (
+                        <div className="flex items-center gap-1.5 text-brand-400 font-semibold capitalize">
+                          <CalendarDays size={12}/> {t.due_date}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500 italic">S/F</span>
+                      )}
+                    </td>
                     <td className="td"><Progress value={t.progress || 0} size="sm"/></td>
                   </tr>
                 ))}
-                {filteredTasks.length === 0 && <tr><td colSpan={6} className="td text-center text-slate-500 py-10">No hay tareas que coincidan con los filtros</td></tr>}
+                {filteredTasks.length === 0 && <tr><td colSpan={7} className="td text-center text-slate-500 py-10">No hay tareas que coincidan con los filtros</td></tr>}
               </tbody>
             </table>
           </div>
