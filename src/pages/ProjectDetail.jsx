@@ -5,8 +5,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Field, Avatar } from '../components/ui';
 import GanttChart from '../components/gantt/GanttChart';
-import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign, Download } from 'lucide-react';
-import { format } from 'date-fns';
+import { ArrowLeft, Plus, Trash2, MapPin, Calendar, Clock, DollarSign, Download, CalendarDays, Pencil } from 'lucide-react';
+import { format, addWeeks, nextFriday, isValid, parseISO, startOfWeek, isFriday } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -14,16 +15,29 @@ const BLANK_TASK = { name:'', assigned_to:'', start_week:1, end_week:2, status:'
 
 const TABS = ['Gantt','Tareas','Equipo','Información'];
 
+// Función matemática: Calcula el viernes de la semana correspondiente
+const getDueDate = (projectStartDate, endWeek) => {
+  if (!projectStartDate) return null;
+  const startDate = parseISO(projectStartDate);
+  if (!isValid(startDate)) return null;
+
+  const targetWeekDate = addWeeks(startDate, Math.max(0, endWeek - 1));
+  const weekStart = startOfWeek(targetWeekDate, { weekStartsOn: 1 });
+  const fridayDate = isFriday(targetWeekDate) ? targetWeekDate : nextFriday(weekStart);
+  
+  return format(fridayDate, "E, dd MMM", { locale: es });
+};
+
 export default function ProjectDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
   const qc       = useQueryClient();
   
-  const [tab,        setTab]        = useState('Gantt');
-  const [taskMod,    setTaskMod]    = useState(false);
-  const [taskForm,   setTaskForm]   = useState(BLANK_TASK);
-  const [delTask,    setDelTask]    = useState(null);
-  const [mbMod,      setMbMod]      = useState(false);
+  const [tab,          setTab]        = useState('Gantt');
+  const [taskMod,      setTaskMod]    = useState(false);
+  const [taskForm,     setTaskForm]   = useState(BLANK_TASK);
+  const [delTask,      setDelTask]    = useState(null);
+  const [mbMod,        setMbMod]      = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   // 1. CARGAMOS DATOS DEL PROYECTO
@@ -105,30 +119,26 @@ export default function ProjectDetail() {
   });
 
   // =======================================================================
-  // FUNCIÓN PARA EXPORTAR GANTT A PDF CORPORATIVO (CON BARRAS VERDES)
+  // FUNCIÓN PARA EXPORTAR GANTT A PDF CORPORATIVO
   // =======================================================================
   const exportGanttToPDF = async () => {
     setIsExporting(true);
     try {
       const doc = new jsPDF('landscape');
       
-      // Colores Tareas Normales
       const azulICAA = [45, 79, 160]; 
       const azulGanttBarra = [74, 127, 212]; 
       
-      // Colores Tareas Completadas
-      const verdeFuerte = [34, 197, 94]; // text-green-500
-      const verdeClaro = [187, 247, 208]; // bg-green-200
+      const verdeFuerte = [34, 197, 94]; 
+      const verdeClaro = [187, 247, 208]; 
 
       const totalWeeks = projectData.duration_weeks || 12;
 
-      // 1. Ordenar tareas cronológicamente
       const sortedTasks = [...(projectData.tasks || [])].sort((a, b) => {
         if (a.start_week !== b.start_week) return a.start_week - b.start_week;
         return a.end_week - b.end_week;
       });
 
-      // 2. Cargar Logo
       const logoImg = new Image();
       logoImg.src = '/icaa-logo.png';
       await new Promise((resolve) => {
@@ -136,7 +146,6 @@ export default function ProjectDetail() {
         logoImg.onerror = resolve; 
       });
 
-      // 3. Encabezado
       if (logoImg.width > 0) {
         doc.addImage(logoImg, 'PNG', 14, 10, 20, 20);
       }
@@ -155,19 +164,16 @@ export default function ProjectDetail() {
       const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
       doc.text(`Generado: ${fechaActual}`, 240, 29); 
 
-      // 4. Configurar Columnas
       const colHeaders = ["TAREA"]; 
       for (let i = 1; i <= totalWeeks; i++) colHeaders.push(`S${i}`);
       const head = [colHeaders];
 
-      // 5. Configurar Filas
       const body = sortedTasks.map(task => {
         const row = [task.name]; 
         for (let i = 1; i <= totalWeeks; i++) row.push(""); 
         return row;
       });
 
-      // 6. Dibujar la Tabla y las Barras
       autoTable(doc, {
         head: head,
         body: body,
@@ -188,7 +194,6 @@ export default function ProjectDetail() {
         columnStyles: {
           0: { cellWidth: 50, fontStyle: 'bold', textColor: [51, 65, 85], halign: 'left' } 
         },
-        // MAGIA: Pintar las celdas para hacer las barras
         didDrawCell: function (data) {
           if (data.section === 'body' && data.column.index > 0) {
             const taskData = sortedTasks[data.row.index];
@@ -203,18 +208,14 @@ export default function ProjectDetail() {
               const barWidth = data.cell.width - (paddingHorizontal * 2);
               const barHeight = data.cell.height - (paddingVertical * 2);
 
-              // REVISIÓN DE ESTADO: ¿Completada o en proceso?
               const isCompleted = taskData.status === 'Completed';
               
-              // Elegir la paleta de colores según el estado
               const colorFondo = isCompleted ? verdeClaro : azulGanttBarra;
               const colorProgreso = isCompleted ? verdeFuerte : azulICAA;
 
-              // Dibujar barra clara (Semana completa)
               doc.setFillColor(colorFondo[0], colorFondo[1], colorFondo[2]);
               doc.rect(barX, barY, barWidth, barHeight, 'F'); 
 
-              // Dibujar barra oscura (Progreso real sobre esa semana)
               if (taskData.progress > 0) {
                 const progressWidth = barWidth * (taskData.progress / 100);
                 doc.setFillColor(colorProgreso[0], colorProgreso[1], colorProgreso[2]); 
@@ -330,7 +331,8 @@ export default function ProjectDetail() {
               <tr>
                 <th className="th">Tarea</th>
                 <th className="th">Asignado</th>
-                <th className="th">Semanas</th>
+                <th className="th text-center">Semanas</th>
+                <th className="th">Vencimiento</th>
                 <th className="th">Estado</th>
                 <th className="th w-36">Progreso</th>
                 <th className="th">Prioridad</th>
@@ -343,22 +345,40 @@ export default function ProjectDetail() {
                   return a.end_week - b.end_week;
                 })).map(t => {
                 const assignedUser = allUsers.find(u => u.id === t.assigned_to);
+                const dueDate = getDueDate(projectData.start_date, t.end_week);
+
                 return (
-                  <tr key={t.id} className="tr-hover">
+                  <tr key={t.id} className="tr-hover border-b border-surface-600/30">
                     <td className="td font-medium text-slate-200">{t.name}</td>
                     <td className="td text-slate-400">{assignedUser ? assignedUser.name : '—'}</td>
-                    <td className="td font-mono text-slate-500 text-xs">S{t.start_week}–S{t.end_week}</td>
+                    <td className="td font-mono text-center">
+                      <span className="bg-surface-600 text-slate-300 px-2 py-0.5 rounded text-xs font-semibold">
+                        S{t.start_week} - S{t.end_week}
+                      </span>
+                    </td>
+                    <td className="td text-xs">
+                      {dueDate ? (
+                        <div className="flex items-center gap-1.5 text-brand-400 font-semibold capitalize">
+                          <CalendarDays size={13}/> {dueDate}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500 italic">S/F</span>
+                      )}
+                    </td>
                     <td className="td"><Badge status={t.status}/></td>
-                    <td className="td"><Progress value={t.progress} size="sm"/></td>
                     <td className="td">
-                      <span className={`text-xs font-semibold
-                        ${t.priority==='High'?'text-red-400':t.priority==='Low'?'text-slate-500':'text-yellow-400'}`}>
+                      <Progress value={t.progress} size="sm" showLabel={false}/>
+                      <div className="text-right text-[10px] text-slate-500 mt-0.5">{t.progress}%</div>
+                    </td>
+                    <td className="td">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded
+                        ${t.priority==='High'?'bg-red-500/10 text-red-400':t.priority==='Low'?'bg-slate-500/10 text-slate-400':'bg-yellow-500/10 text-yellow-400'}`}>
                         {t.priority}
                       </span>
                     </td>
                     <td className="td">
-                      <div className="flex gap-1">
-                        <button className="btn-icon" onClick={() => openEditTask(t)}><Plus size={12} className="rotate-45"/></button>
+                      <div className="flex gap-1 justify-end">
+                        <button className="btn-icon" onClick={() => openEditTask(t)}><Pencil size={12}/></button>
                         <button className="btn-icon hover:text-red-400" onClick={() => setDelTask(t)}><Trash2 size={12}/></button>
                       </div>
                     </td>
@@ -366,7 +386,7 @@ export default function ProjectDetail() {
                 );
               })}
               {!projectData.tasks?.length && (
-                <tr><td colSpan={7} className="td text-center text-slate-500 py-10">Sin tareas</td></tr>
+                <tr><td colSpan={8} className="td text-center text-slate-500 py-10">Sin tareas</td></tr>
               )}
             </tbody>
           </table>
