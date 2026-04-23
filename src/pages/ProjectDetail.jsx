@@ -308,9 +308,13 @@ export default function ProjectDetail() {
             <h2 className="text-white font-display font-bold text-lg mb-2 pl-2 border-l-4 border-brand-500">
               Cronograma: {projectData.name}
             </h2>
+            {/* AQUÍ ESTÁ LA MAGIA DEL ORDENAMIENTO EN LA VISTA DEL GANTT */}
             <GanttChart
               project={projectData}
-              tasks={projectData.tasks || []}
+              tasks={[...(projectData.tasks || [])].sort((a,b) => {
+                if (a.start_week !== b.start_week) return a.start_week - b.start_week;
+                return a.end_week - b.end_week;
+              })}
               onEditTask={openEditTask}
               onDeleteTask={t => setDelTask(t)}
               onMoveTask={(tid, sw, ew) => moveTask.mutate({ tid, sw, ew })}
