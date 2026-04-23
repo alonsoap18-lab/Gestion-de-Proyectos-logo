@@ -4,28 +4,27 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Badge, Progress, Spinner, Empty, Field } from '../components/ui';
-import { Plus, Pencil, Trash2, FolderKanban, MapPin, Calendar, Clock, Users, ChevronRight, DollarSign } from 'lucide-react';
-import { format } from 'date-fns';
-import { useAuth } from '../context/AuthContext'; // <-- 1. IMPORTAMOS LA SESIÓN
+import { Plus, Pencil, Trash2, FolderKanban, MapPin, Calendar, Clock, Users, ChevronRight, DollarSign, CalendarDays } from 'lucide-react';
+import { format, addWeeks, parseISO, isValid } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { useAuth } from '../context/AuthContext';
 
 const BLANK = { name:'', client:'', location:'', start_date:'', duration_weeks:12, status:'Planning', description:'', budget:'' };
 
 export default function Projects() {
   const qc       = useQueryClient();
   const navigate = useNavigate();
-  const { user } = useAuth(); // <-- 2. OBTENEMOS AL USUARIO
+  const { user } = useAuth(); 
 
   const [modal,  setModal]  = useState(false);
   const [form,   setForm]   = useState(BLANK);
   const [delTgt, setDelTgt] = useState(null);
   const [filter, setFilter] = useState('');
 
-  // --- 3. DEFINIMOS LOS PERMISOS (CANDADOS) ---
   const isAdmin = user?.role === 'Admin';
   const isManager = ['Admin', 'Engineer', 'Supervisor'].includes(user?.role);
   const canSeeMoney = ['Admin', 'Engineer'].includes(user?.role);
 
-  // 1. LEER PROYECTOS DESDE SUPABASE
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn:  async () => {
@@ -35,28 +34,23 @@ export default function Projects() {
     },
   });
 
-  // 2. CREAR O EDITAR PROYECTO
   const save = useMutation({
     mutationFn: async (d) => {
       if (d.id) {
         const { data, error } = await supabase.from('projects').update(d).eq('id', d.id).select();
-        if (error) throw error;
-        return data;
+        if (error) throw error; return data;
       } else {
         const { data, error } = await supabase.from('projects').insert([d]).select();
-        if (error) throw error;
-        return data;
+        if (error) throw error; return data;
       }
     },
     onSuccess:  () => { qc.invalidateQueries(['projects']); qc.invalidateQueries(['dashboard']); setModal(false); },
   });
 
-  // 3. ELIMINAR PROYECTO
   const del = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('projects').delete().eq('id', id);
-      if (error) throw error;
-      return true;
+      if (error) throw error; return true;
     },
     onSuccess:  () => { qc.invalidateQueries(['projects']); qc.invalidateQueries(['dashboard']); setDelTgt(null); },
   });
@@ -72,13 +66,11 @@ export default function Projects() {
 
   return (
     <div>
-      {/* Header */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Proyectos</h1>
           <p className="text-slate-400 text-sm mt-0.5">{projects.length} proyecto(s) en el sistema</p>
         </div>
-        {/* CANDADO: Solo Managers o Admins pueden crear un proyecto nuevo */}
         {isManager && (
           <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
             <Plus size={15}/> Nuevo Proyecto
@@ -86,7 +78,6 @@ export default function Projects() {
         )}
       </div>
 
-      {/* Status filter pills */}
       <div className="flex flex-wrap gap-2 mb-5">
         {[['', 'Todos', counts.all], ['Planning','Planificación',counts.Planning],
           ['Active','Activos',counts.Active], ['Delayed','Retrasados',counts.Delayed],
@@ -102,9 +93,15 @@ export default function Projects() {
         ))}
       </div>
 
-      {/* Cards grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {shown.map(p => (
+        {shown.map(p => {
+          // Cálculo de la fecha estimada de fin del proyecto
+          let projectEndDate = null;
+          if (p.start_date && isValid(parseISO(p.start_date))) {
+            projectEndDate = format(addWeeks(parseISO(p.start_date), p.duration_weeks), "dd MMM yyyy", {locale:es});
+          }
+
+          return (
           <div key={p.id}
             className="card p-5 cursor-pointer hover:border-surface-400 transition-all group"
             onClick={() => navigate(`/projects/${p.id}`)}>
@@ -118,14 +115,12 @@ export default function Projects() {
                 <p className="text-slate-500 text-xs truncate">{p.client || 'Sin cliente'}</p>
               </div>
               <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                {/* CANDADO: Solo Managers pueden editar */}
                 {isManager && (
                   <button className="btn-icon"
                     onClick={() => { setForm({ ...p, budget: p.budget?.toString() || '' }); setModal(true); }}>
                     <Pencil size={13}/>
                   </button>
                 )}
-                {/* CANDADO: Solo Admin puede eliminar */}
                 {isAdmin && (
                   <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(p)}>
                     <Trash2 size={13}/>
@@ -134,30 +129,34 @@ export default function Projects() {
               </div>
             </div>
 
-            <div className="space-y-1 mb-3 text-xs text-slate-500">
+            <div className="space-y-1.5 mb-4 text-xs text-slate-500">
               {p.location && (
-                <div className="flex items-center gap-1.5"><MapPin size={11} className="text-brand-500"/>{p.location}</div>
+                <div className="flex items-center gap-2"><MapPin size={12} className="text-brand-500"/>{p.location}</div>
               )}
               {p.start_date && (
-                <div className="flex items-center gap-1.5"><Calendar size={11} className="text-brand-500"/>
-                  {format(new Date(p.start_date), 'dd/MM/yyyy')}
+                <div className="flex items-center gap-2"><Calendar size={12} className="text-brand-500"/>
+                  Inicio: <span className="text-slate-300 font-medium ml-1">{format(new Date(p.start_date), 'dd/MM/yyyy')}</span>
                 </div>
               )}
-              <div className="flex items-center gap-1.5"><Clock size={11} className="text-brand-500"/>{p.duration_weeks} semanas</div>
+              {projectEndDate && (
+                <div className="flex items-center gap-2 text-slate-400"><CalendarDays size={12} className="text-slate-500"/>
+                  Fin estimado: <span className="ml-1">{projectEndDate}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2"><Clock size={12} className="text-brand-500"/>{p.duration_weeks} semanas</div>
               
-              {/* CANDADO: Solo Admin/Engineer pueden ver la plata */}
               {canSeeMoney && p.budget > 0 && (
-                <div className="flex items-center gap-1.5"><DollarSign size={11} className="text-brand-500"/>
-                  ${Number(p.budget).toLocaleString()}
+                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-surface-600/50">
+                  <DollarSign size={12} className="text-green-500"/>
+                  <span className="text-green-400 font-mono font-medium">${Number(p.budget).toLocaleString()}</span>
                 </div>
               )}
               
               {p.members?.length > 0 && (
-                <div className="flex items-center gap-1.5"><Users size={11} className="text-brand-500"/>{p.members.length} miembro(s)</div>
+                <div className="flex items-center gap-2"><Users size={12} className="text-brand-500"/>{p.members.length} miembro(s)</div>
               )}
             </div>
 
-            {/* AQUÍ ESTÁ LA MAGIA DEL PROGRESO */}
             <Progress value={p.progress || 0} size="sm"/>
 
             <div className="flex items-center justify-between mt-3">
@@ -167,14 +166,13 @@ export default function Projects() {
               </div>
             </div>
           </div>
-        ))}
+        )})}
 
         {shown.length === 0 && (
           <div className="col-span-3">
             <Empty icon={FolderKanban} title="Sin Proyectos"
               message="No hay proyectos que coincidan con el filtro seleccionado."
               action={
-                /* CANDADO: En el estado vacío también protegemos el botón */
                 isManager && (
                   <button className="btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
                     <Plus size={14}/> Nuevo Proyecto
@@ -186,7 +184,6 @@ export default function Projects() {
         )}
       </div>
 
-      {/* Form modal - CANDADO: Solo renderiza el modal si es Manager */}
       {isManager && (
         <Modal open={modal} onClose={() => setModal(false)}
           title={form.id ? 'Editar Proyecto' : 'Nuevo Proyecto'} size="lg">
@@ -221,7 +218,6 @@ export default function Projects() {
                 onChange={e => setForm({...form, duration_weeks: e.target.value})}/>
             </Field>
             
-            {/* CANDADO: El campo del presupuesto solo le sale a Admin/Engineer */}
             {canSeeMoney && (
               <Field label="Presupuesto ($)">
                 <input type="number" className="input" value={form.budget||''} min={0} step="0.01"
@@ -252,7 +248,6 @@ export default function Projects() {
         </Modal>
       )}
 
-      {/* CANDADO: El modal de confirmación de borrado solo para Admin */}
       {isAdmin && (
         <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)}
           title="Eliminar Proyecto"
