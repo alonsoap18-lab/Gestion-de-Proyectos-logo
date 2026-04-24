@@ -38,7 +38,10 @@ export default function ProjectDetail() {
   const [taskForm,     setTaskForm]   = useState(BLANK_TASK);
   const [delTask,      setDelTask]    = useState(null);
   const [mbMod,        setMbMod]      = useState(false);
+  
+  // Estados para exportación
   const [isExporting, setIsExporting] = useState(false);
+  const [pdfPages, setPdfPages]       = useState(1); // <-- NUEVO: Control de páginas
 
   // 1. CARGAMOS DATOS DEL PROYECTO
   const { data: projectData, isLoading: isLoadingProject } = useQuery({
@@ -119,9 +122,9 @@ export default function ProjectDetail() {
   });
 
   // =======================================================================
-  // FUNCIÓN PARA EXPORTAR GANTT A PDF CORPORATIVO
+  // FUNCIÓN PARA EXPORTAR GANTT A PDF (DINÁMICO SEGÚN PÁGINAS)
   // =======================================================================
-  const exportGanttToPDF = async () => {
+  const exportGanttToPDF = async (pages) => {
     setIsExporting(true);
     try {
       const doc = new jsPDF('landscape');
@@ -146,91 +149,118 @@ export default function ProjectDetail() {
         logoImg.onerror = resolve; 
       });
 
-      if (logoImg.width > 0) {
-        doc.addImage(logoImg, 'PNG', 14, 10, 20, 20);
-      }
+      // Calculamos las semanas por cada página
+      const weeksPerPage = Math.ceil(totalWeeks / pages);
 
-      doc.setFontSize(18);
-      doc.setTextColor(azulICAA[0], azulICAA[1], azulICAA[2]);
-      doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 38 : 14, 18);
-      
-      doc.setFontSize(12);
-      doc.setTextColor(100, 116, 139); 
-      doc.text("Cronograma de Obra (Diagrama Gantt)", logoImg.width > 0 ? 38 : 14, 24);
-      
-      doc.setFontSize(10);
-      doc.text(`Proyecto: ${projectData.name} - Duración: ${totalWeeks} semanas`, logoImg.width > 0 ? 38 : 14, 29);
+      // Función que dibuja una porción de las semanas en una página
+      const drawPageContent = (startW, endW, isFirstPage, currentPage, totalP) => {
+        if (!isFirstPage) {
+          doc.addPage();
+        }
 
-      const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
-      doc.text(`Generado: ${fechaActual}`, 240, 29); 
+        if (logoImg.width > 0) {
+          doc.addImage(logoImg, 'PNG', 14, 10, 20, 20);
+        }
 
-      const colHeaders = ["TAREA"]; 
-      for (let i = 1; i <= totalWeeks; i++) colHeaders.push(`S${i}`);
-      const head = [colHeaders];
+        doc.setFontSize(18);
+        doc.setTextColor(azulICAA[0], azulICAA[1], azulICAA[2]);
+        doc.text("GRUPO ICAA CONSTRUCTORA", logoImg.width > 0 ? 38 : 14, 18);
+        
+        doc.setFontSize(12);
+        doc.setTextColor(100, 116, 139); 
+        const partText = totalP > 1 ? ` (Parte ${currentPage} de ${totalP})` : '';
+        doc.text(`Cronograma de Obra - Diagrama Gantt${partText}`, logoImg.width > 0 ? 38 : 14, 24);
+        
+        doc.setFontSize(10);
+        doc.text(`Proyecto: ${projectData.name} - Duración: ${totalWeeks} semanas`, logoImg.width > 0 ? 38 : 14, 29);
 
-      const body = sortedTasks.map(task => {
-        const row = [task.name]; 
-        for (let i = 1; i <= totalWeeks; i++) row.push(""); 
-        return row;
-      });
+        const fechaActual = new Date().toLocaleDateString('es-CR', { year: 'numeric', month: 'long', day: 'numeric' });
+        doc.text(`Generado: ${fechaActual}`, 240, 29); 
 
-      autoTable(doc, {
-        head: head,
-        body: body,
-        startY: 35, 
-        theme: 'plain', 
-        styles: { 
-          fontSize: 6, 
-          cellPadding: 1,
-          lineColor: [226, 232, 240], 
-          lineWidth: 0.1,
-        },
-        headStyles: { 
-          fillColor: [248, 250, 252], 
-          textColor: [100, 116, 139], 
-          fontStyle: 'bold',
-          halign: 'center' 
-        },
-        columnStyles: {
-          0: { cellWidth: 50, fontStyle: 'bold', textColor: [51, 65, 85], halign: 'left' } 
-        },
-        didDrawCell: function (data) {
-          if (data.section === 'body' && data.column.index > 0) {
-            const taskData = sortedTasks[data.row.index];
-            const currentWeekColumn = data.column.index; 
+        const colHeaders = ["TAREA"]; 
+        for (let i = startW; i <= endW; i++) colHeaders.push(`S${i}`);
+        const head = [colHeaders];
 
-            if (currentWeekColumn >= taskData.start_week && currentWeekColumn <= taskData.end_week) {
-              const paddingVertical = data.cell.height * 0.2; 
-              const paddingHorizontal = 0; 
+        const body = sortedTasks.map(task => {
+          const row = [task.name]; 
+          for (let i = startW; i <= endW; i++) row.push(""); 
+          return row;
+        });
 
-              const barX = data.cell.x + paddingHorizontal;
-              const barY = data.cell.y + paddingVertical;
-              const barWidth = data.cell.width - (paddingHorizontal * 2);
-              const barHeight = data.cell.height - (paddingVertical * 2);
+        const weekOffset = startW - 1;
 
-              const isCompleted = taskData.status === 'Completed';
-              
-              const colorFondo = isCompleted ? verdeClaro : azulGanttBarra;
-              const colorProgreso = isCompleted ? verdeFuerte : azulICAA;
+        // Ajustes de diseño según cuántas páginas escogió el usuario
+        const fontSizeDynamic = pages === 1 ? 6 : pages === 2 ? 7 : 8;
+        const cellWidthDynamic = pages === 1 ? 50 : pages === 2 ? 70 : 90;
 
-              doc.setFillColor(colorFondo[0], colorFondo[1], colorFondo[2]);
-              doc.rect(barX, barY, barWidth, barHeight, 'F'); 
+        autoTable(doc, {
+          head: head,
+          body: body,
+          startY: 35, 
+          theme: 'plain', 
+          styles: { 
+            fontSize: fontSizeDynamic, 
+            cellPadding: pages > 1 ? 1.5 : 1,
+            lineColor: [226, 232, 240], 
+            lineWidth: 0.1,
+          },
+          headStyles: { 
+            fillColor: [248, 250, 252], 
+            textColor: [100, 116, 139], 
+            fontStyle: 'bold',
+            halign: 'center' 
+          },
+          columnStyles: {
+            0: { cellWidth: cellWidthDynamic, fontStyle: 'bold', textColor: [51, 65, 85], halign: 'left' } 
+          },
+          didDrawCell: function (data) {
+            if (data.section === 'body' && data.column.index > 0) {
+              const taskData = sortedTasks[data.row.index];
+              const currentWeekColumn = data.column.index + weekOffset; 
 
-              if (taskData.progress > 0) {
-                const progressWidth = barWidth * (taskData.progress / 100);
-                doc.setFillColor(colorProgreso[0], colorProgreso[1], colorProgreso[2]); 
-                doc.rect(barX, barY, progressWidth, barHeight, 'F');
+              if (currentWeekColumn >= taskData.start_week && currentWeekColumn <= taskData.end_week) {
+                const paddingVertical = data.cell.height * 0.2; 
+                const paddingHorizontal = 0; 
+
+                const barX = data.cell.x + paddingHorizontal;
+                const barY = data.cell.y + paddingVertical;
+                const barWidth = data.cell.width - (paddingHorizontal * 2);
+                const barHeight = data.cell.height - (paddingVertical * 2);
+
+                const isCompleted = taskData.status === 'Completed';
+                
+                const colorFondo = isCompleted ? verdeClaro : azulGanttBarra;
+                const colorProgreso = isCompleted ? verdeFuerte : azulICAA;
+
+                doc.setFillColor(colorFondo[0], colorFondo[1], colorFondo[2]);
+                doc.rect(barX, barY, barWidth, barHeight, 'F'); 
+
+                if (taskData.progress > 0) {
+                  const progressWidth = barWidth * (taskData.progress / 100);
+                  doc.setFillColor(colorProgreso[0], colorProgreso[1], colorProgreso[2]); 
+                  doc.rect(barX, barY, progressWidth, barHeight, 'F');
+                }
               }
             }
+          },
+          didDrawPage: function (data) {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
+            doc.text("Grupo ICAA Constructora - Confidencial", 200, doc.internal.pageSize.height - 10);
           }
-        },
-        didDrawPage: function (data) {
-          doc.setFontSize(8);
-          doc.setTextColor(150);
-          doc.text(`Página ${doc.internal.getNumberOfPages()}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
-          doc.text("Grupo ICAA Constructora - Confidencial", 200, doc.internal.pageSize.height - 10);
-        }
-      });
+        });
+      };
+
+      // Bucle para dibujar cada página solicitada
+      for (let i = 0; i < pages; i++) {
+        const startW = (i * weeksPerPage) + 1;
+        const endW = Math.min(startW + weeksPerPage - 1, totalWeeks);
+        
+        if (startW > totalWeeks) break; 
+        
+        drawPageContent(startW, endW, i === 0, i + 1, pages);
+      }
 
       doc.save(`Gantt_${projectData.name.replace(/\s+/g, '_')}_ICAA.pdf`);
     } catch (error) {
@@ -291,16 +321,33 @@ export default function ProjectDetail() {
               Diagrama Gantt · {totalWeeks} semanas ·{' '}
               {projectData.start_date && format(new Date(projectData.start_date), 'dd/MM/yyyy')}
             </h3>
+            
             <div className="flex gap-2">
-              <button 
-                className="btn-ghost border border-red-600/30 text-red-400 hover:bg-red-500/10" 
-                onClick={exportGanttToPDF}
-                disabled={isExporting}
-              >
-                {isExporting ? <Spinner size="sm" /> : <Download size={14} className="mr-1"/>}
-                {isExporting ? 'Generando...' : 'Descargar PDF'}
-              </button>
-              <button className="btn-primary" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
+              {/* NUEVO CONTRO DE PÁGINAS */}
+              <div className="flex items-center bg-surface-800 rounded-lg border border-surface-600 overflow-hidden">
+                <span className="text-xs text-slate-400 pl-3 pr-1 py-2">Hojas:</span>
+                <select 
+                  className="bg-transparent text-sm text-slate-200 py-2 pr-3 outline-none cursor-pointer"
+                  value={pdfPages} 
+                  onChange={e => setPdfPages(Number(e.target.value))}
+                >
+                  <option value={1}>1 Hoja</option>
+                  <option value={2}>2 Hojas</option>
+                  <option value={3}>3 Hojas</option>
+                  <option value={4}>4 Hojas</option>
+                </select>
+                <div className="w-px h-5 bg-surface-600 mx-1"></div>
+                <button 
+                  className="text-xs font-semibold text-brand-400 hover:bg-brand-500/10 px-3 py-2 flex items-center gap-1.5 transition-colors" 
+                  onClick={() => exportGanttToPDF(pdfPages)}
+                  disabled={isExporting}
+                >
+                  {isExporting ? <Spinner size="sm" /> : <Download size={14}/>}
+                  {isExporting ? 'Generando...' : 'Descargar'}
+                </button>
+              </div>
+
+              <button className="btn-primary ml-2" onClick={openNewTask}><Plus size={14}/>Nueva Tarea</button>
             </div>
           </div>
           
@@ -308,7 +355,6 @@ export default function ProjectDetail() {
             <h2 className="text-white font-display font-bold text-lg mb-2 pl-2 border-l-4 border-brand-500">
               Cronograma: {projectData.name}
             </h2>
-            {/* AQUÍ ESTÁ LA MAGIA DEL ORDENAMIENTO EN LA VISTA DEL GANTT */}
             <GanttChart
               project={projectData}
               tasks={[...(projectData.tasks || [])].sort((a,b) => {
@@ -426,6 +472,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
+      {/* ── INFORMACIÓN ── */}
       {tab === 'Información' && (
         <div className="card p-6">
           <h3 className="section-title text-sm mb-4">Información del Proyecto</h3>
