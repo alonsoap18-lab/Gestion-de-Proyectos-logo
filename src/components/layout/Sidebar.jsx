@@ -5,22 +5,38 @@ import {
   LayoutDashboard, FolderKanban, CheckSquare, Users,
   Calendar, BarChart3, Wrench, Package, UserCog,
   LogOut, ChevronLeft, ChevronRight, Truck, UserCircle,
-  Database, ShoppingCart // <-- Nuevos iconos agregados aquí
+  Database, ShoppingCart
 } from 'lucide-react';
 
-const NAV = [
-  { to: '/',         icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/projects',  icon: FolderKanban,    label: 'Proyectos'  },
-  { to: '/tasks',     icon: CheckSquare,     label: 'Tareas'     },
-  { to: '/employees', icon: Users,           label: 'Empleados'  },
-  { to: '/calendar',  icon: Calendar,        label: 'Calendario' },
-  { to: '/reports',   icon: BarChart3,       label: 'Reportes'   },
-  { to: '/machinery', icon: Wrench,          label: 'Maquinaria' },
-  { to: '/materials', icon: Package,         label: 'Materiales' },
-  { to: '/catalog',   icon: Database,        label: 'Catálogo'   }, // <-- Nuevo
-  { to: '/orders',    icon: ShoppingCart,    label: 'Pedidos'    }, // <-- Nuevo
-  { to: '/proveedores', icon: Truck,         label: 'Proveedores'},
-  { to: '/users',     icon: UserCog,         label: 'Usuarios',  adminOnly: true },
+// --- NUEVA ESTRUCTURA AGRUPADA ---
+const NAV_GROUPS = [
+  {
+    title: 'Operaciones',
+    items: [
+      { to: '/',          icon: LayoutDashboard, label: 'Dashboard'  },
+      { to: '/projects',  icon: FolderKanban,    label: 'Proyectos'  },
+      { to: '/tasks',     icon: CheckSquare,     label: 'Tareas'     },
+      { to: '/calendar',  icon: Calendar,        label: 'Calendario' },
+    ]
+  },
+  {
+    title: 'Logística & Compras',
+    items: [
+      { to: '/catalog',   icon: Database,        label: 'Catálogo'   },
+      { to: '/orders',    icon: ShoppingCart,    label: 'Pedidos'    },
+      { to: '/materials', icon: Package,         label: 'Materiales' },
+      { to: '/proveedores', icon: Truck,         label: 'Proveedores'},
+      { to: '/machinery', icon: Wrench,          label: 'Maquinaria' },
+    ]
+  },
+  {
+    title: 'Administración',
+    items: [
+      { to: '/employees', icon: Users,           label: 'Empleados'  },
+      { to: '/reports',   icon: BarChart3,       label: 'Reportes'   },
+      { to: '/users',     icon: UserCog,         label: 'Usuarios',  adminOnly: true },
+    ]
+  }
 ];
 
 const ROLE_COLOR = {
@@ -44,7 +60,6 @@ export default function Sidebar({ collapsed, toggle }) {
       {/* ── Logo ─────────────────────────────────────────── */}
       <div className={`flex items-center border-b border-surface-600 min-h-[68px] overflow-hidden
                        ${collapsed ? 'justify-center px-2 py-3' : 'px-3 py-3 gap-3'}`}>
-        {/* White bg pill for logo */}
         <div className={`bg-white rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200
                          ${collapsed ? 'w-9 h-9 p-1' : 'w-11 h-11 p-1.5'}`}>
           <img src="/icaa-logo.png" alt="ICAA" className="w-full h-full object-contain"/>
@@ -61,30 +76,51 @@ export default function Sidebar({ collapsed, toggle }) {
       </div>
 
       {/* ── Nav ──────────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 custom-scrollbar">
-        {NAV.map(({ to, icon: Icon, label, adminOnly }) => {
-          if (adminOnly && user?.role !== 'Admin') return null;
-          const active = to === '/'
-            ? loc.pathname === '/'
-            : loc.pathname.startsWith(to);
+      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-5 custom-scrollbar">
+        {NAV_GROUPS.map((group, idx) => {
+          // Filtramos los items según los permisos de administrador
+          const visibleItems = group.items.filter(item => !(item.adminOnly && user?.role !== 'Admin'));
+          
+          if (visibleItems.length === 0) return null;
 
           return (
-            <NavLink key={to} to={to} title={collapsed ? label : undefined}
-              className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-sm font-medium
-                          transition-all duration-100 group
-                          ${active
-                            ? 'text-white border border-[#2d4fa0]/40'
-                            : 'text-slate-400 hover:text-slate-100 hover:bg-surface-600 border border-transparent'
-                          }`}
-              style={active ? { background: 'linear-gradient(135deg, rgba(45,79,160,0.25) 0%, rgba(45,79,160,0.1) 100%)' } : {}}
-            >
-              <Icon size={17} className={`flex-shrink-0 transition-colors
-                ${active ? 'text-[#4a7fd4]' : 'text-slate-500 group-hover:text-slate-300'}`}/>
-              {!collapsed && <span className="truncate">{label}</span>}
-              {active && !collapsed && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#4a7fd4] flex-shrink-0"/>
+            <div key={idx} className="flex flex-col gap-0.5">
+              {/* Título de la sección (visible solo si está expandido) */}
+              {!collapsed ? (
+                <div className="px-3 mb-1 text-[10px] font-bold tracking-widest text-slate-500 uppercase">
+                  {group.title}
+                </div>
+              ) : (
+                /* Separador visual sutil cuando está colapsado */
+                idx !== 0 && <div className="border-t border-surface-600 my-1 mx-2"></div>
               )}
-            </NavLink>
+
+              {/* Botones de la sección */}
+              {visibleItems.map(({ to, icon: Icon, label }) => {
+                const active = to === '/'
+                  ? loc.pathname === '/'
+                  : loc.pathname.startsWith(to);
+
+                return (
+                  <NavLink key={to} to={to} title={collapsed ? label : undefined}
+                    className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-sm font-medium
+                                transition-all duration-100 group
+                                ${active
+                                  ? 'text-white border border-[#2d4fa0]/40'
+                                  : 'text-slate-400 hover:text-slate-100 hover:bg-surface-600 border border-transparent'
+                                }`}
+                    style={active ? { background: 'linear-gradient(135deg, rgba(45,79,160,0.25) 0%, rgba(45,79,160,0.1) 100%)' } : {}}
+                  >
+                    <Icon size={17} className={`flex-shrink-0 transition-colors
+                      ${active ? 'text-[#4a7fd4]' : 'text-slate-500 group-hover:text-slate-300'}`}/>
+                    {!collapsed && <span className="truncate">{label}</span>}
+                    {active && !collapsed && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#4a7fd4] flex-shrink-0"/>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
           );
         })}
       </nav>
@@ -92,7 +128,6 @@ export default function Sidebar({ collapsed, toggle }) {
       {/* ── Footer ───────────────────────────────────────── */}
       <div className="border-t border-surface-600 p-2 space-y-1">
         
-        {/* BOTÓN DE PERFIL DE USUARIO */}
         <NavLink 
           to="/profile" 
           title={collapsed ? "Mi Perfil" : undefined}
@@ -120,7 +155,6 @@ export default function Sidebar({ collapsed, toggle }) {
           )}
         </NavLink>
 
-        {/* LOGOUT */}
         <button onClick={logout} title="Cerrar sesión"
           className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-400
                      hover:text-red-400 hover:bg-red-500/10 transition-all">
@@ -128,7 +162,6 @@ export default function Sidebar({ collapsed, toggle }) {
           {!collapsed && 'Cerrar sesión'}
         </button>
 
-        {/* TOGGLE EXPANDIR/CONTRAER */}
         <button onClick={toggle}
           className="w-full flex items-center justify-center py-1.5 rounded-lg text-slate-600
                      hover:text-slate-400 hover:bg-surface-700 transition-all">
