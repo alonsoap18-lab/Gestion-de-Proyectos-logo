@@ -15,6 +15,11 @@ import Materials from './pages/Materials';
 import Proveedores from './pages/Proveedores'; 
 import Users from './pages/Users';
 import Profile from './pages/Profile';
+
+// --- NUEVAS IMPORTACIONES ---
+import MaterialCatalog from './pages/MaterialCatalog';
+import MaterialOrders from './pages/MaterialOrders';
+
 function Private({ children }) {
   const { user } = useAuth();
   return user ? children : <Navigate to="/login" replace />;
@@ -44,9 +49,17 @@ export default function App() {
       <Route path="/machinery" element={<P el={<Machinery />} />} />
       <Route path="/materials" element={<P el={<Materials />} />} />
       <Route path="/proveedores" element={<P el={<Proveedores />} />} />
+      
+      {/* --- NUEVAS RUTAS AGREGADAS --- */}
+      <Route path="/catalog" element={<P el={<MaterialCatalog />} />} />
+      <Route path="/orders" element={<P el={<MaterialOrders />} />} />
+      
       <Route path="/users" element={<A el={<Users />} />} />
+      
+      {/* --- RUTA DE PERFIL CORREGIDA PARA MOSTRAR EL MENÚ LATERAL --- */}
+      <Route path="/profile" element={<P el={<Profile />} />} />
+      
       <Route path="*" element={<Navigate to="/" replace />} />
-      <Route path="profile" element={<Profile />} />
     </Routes>
   );
 }
