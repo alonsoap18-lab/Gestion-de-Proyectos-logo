@@ -3,17 +3,25 @@ import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Spinner, Modal, Field, Confirm } from '../components/ui';
-import { Plus, Upload, Trash2, Database, Search } from 'lucide-react';
+import { Plus, Upload, Trash2, Database, Search, Edit3 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+const CATEGORIES = [
+  'Obra Gris', 'Acabados', 'Eléctrico', 'Tubería y PVC', 
+  'Maderas y Cubiertas', 'Pinturas', 'Tornillería y Varios', 'Importado'
+];
 
 export default function MaterialCatalog() {
   const qc = useQueryClient();
   const fileRef = useRef(null);
+  
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ name: '', category: 'Obra Gris' });
   const [delTgt, setDelTgt] = useState(null);
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('Todos');
 
+  // 1. LEER DATOS
   const { data: catalog = [], isLoading } = useQuery({
     queryKey: ['materials_catalog'],
     queryFn: async () => {
@@ -22,6 +30,7 @@ export default function MaterialCatalog() {
     }
   });
 
+  // 2. CREAR NUEVO
   const save = useMutation({
     mutationFn: async (d) => {
       const { error } = await supabase.from('materials_catalog').insert([d]);
@@ -30,6 +39,16 @@ export default function MaterialCatalog() {
     onSuccess: () => { qc.invalidateQueries(['materials_catalog']); setModal(false); }
   });
 
+  // 3. ACTUALIZAR CATEGORÍA RÁPIDO (INLINE EDITING)
+  const updateCategory = useMutation({
+    mutationFn: async ({ id, category }) => {
+      const { error } = await supabase.from('materials_catalog').update({ category }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries(['materials_catalog'])
+  });
+
+  // 4. ELIMINAR
   const del = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('materials_catalog').delete().eq('id', id);
@@ -38,7 +57,7 @@ export default function MaterialCatalog() {
     onSuccess: () => { qc.invalidateQueries(['materials_catalog']); setDelTgt(null); }
   });
 
-  // SUBIR EXCEL MASIVO
+  // 5. SUBIR EXCEL MASIVO
   const handleExcel = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -61,6 +80,7 @@ export default function MaterialCatalog() {
           const { error } = await supabase.from('materials_catalog').insert(inserts);
           if (error) throw error;
           qc.invalidateQueries(['materials_catalog']);
+          setActiveTab('Importado'); // Movemos al usuario a la pestaña de importados
           alert(`Se cargaron ${inserts.length} materiales al catálogo.`);
         }
       } catch (err) { alert("Error leyendo el archivo."); }
@@ -69,7 +89,12 @@ export default function MaterialCatalog() {
     e.target.value = null;
   };
 
-  const filtered = catalog.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  // FILTRADO (Por pestaña y por buscador)
+  const filtered = catalog.filter(c => {
+    const matchTab = activeTab === 'Todos' || c.category === activeTab;
+    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
+    return matchTab && matchSearch;
+  });
 
   if (isLoading) return <Spinner/>;
 
@@ -78,7 +103,7 @@ export default function MaterialCatalog() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Catálogo Maestro</h1>
-          <p className="text-slate-400 text-sm mt-0.5">Base de datos de materiales para la constructora</p>
+          <p className="text-slate-400 text-sm mt-0.5">Base de datos centralizada de materiales</p>
         </div>
         <div className="flex gap-2">
           <button className="btn-ghost border border-green-500/30 text-green-400 hover:bg-green-500/10" onClick={() => fileRef.current?.click()}>
@@ -92,37 +117,111 @@ export default function MaterialCatalog() {
         </div>
       </div>
 
-      <div className="card p-5 mb-5 flex items-center gap-2">
-        <Search size={16} className="text-slate-500"/>
-        <input className="bg-transparent border-none outline-none text-slate-200 flex-1" placeholder="Buscar material en el catálogo..." value={search} onChange={e => setSearch(e.target.value)}/>
+      {/* TABS DE CATEGORÍAS */}
+      <div className="flex overflow-x-auto gap-2 mb-4 pb-2 custom-scrollbar">
+        <button 
+          onClick={() => setActiveTab('Todos')}
+          className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-semibold transition-all
+            ${activeTab === 'Todos' ? 'bg-brand-500 text-white' : 'bg-surface-800 text-slate-400 hover:text-slate-200'}`}
+        >
+          Todos ({catalog.length})
+        </button>
+        {CATEGORIES.map(cat => {
+          const count = catalog.filter(c => c.category === cat).length;
+          return (
+            <button key={cat} onClick={() => setActiveTab(cat)}
+              className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2
+                ${activeTab === cat ? 'bg-brand-500 text-white' : 'bg-surface-800 text-slate-400 hover:text-slate-200'}
+                ${cat === 'Importado' && count > 0 && activeTab !== 'Importado' ? 'border border-yellow-500/50 text-yellow-500' : ''}`}
+            >
+              {cat}
+              {count > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${activeTab === cat ? 'bg-white/20' : 'bg-surface-600'}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {filtered.map(c => (
-          <div key={c.id} className="flex items-center justify-between bg-surface-800 p-3 rounded-xl border border-surface-600">
-            <div>
-              <div className="text-slate-200 font-semibold text-sm">{c.name}</div>
-              <div className="text-xs text-slate-500">{c.category}</div>
-            </div>
-            <button className="btn-icon hover:text-red-400" onClick={() => setDelTgt(c)}><Trash2 size={14}/></button>
-          </div>
-        ))}
-        {filtered.length === 0 && <div className="col-span-full py-10 text-center text-slate-500"><Database size={30} className="mx-auto mb-2 opacity-50"/>El catálogo está vacío o no hay coincidencias.</div>}
+      {/* BUSCADOR */}
+      <div className="bg-surface-800 p-3 rounded-xl border border-surface-600 flex items-center gap-2 mb-4">
+        <Search size={16} className="text-slate-400"/>
+        <input 
+          className="bg-transparent border-none outline-none text-slate-200 flex-1 text-sm" 
+          placeholder={`Buscar en ${activeTab}...`} 
+          value={search} 
+          onChange={e => setSearch(e.target.value)}
+        />
       </div>
 
+      {/* VISTA DE TABLA CON EDICIÓN RÁPIDA */}
+      <div className="table-wrap">
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="th w-1/2">Nombre del Material</th>
+              <th className="th w-1/3">Categoría</th>
+              <th className="th w-20 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(c => (
+              <tr key={c.id} className="tr-hover group">
+                <td className="td font-medium text-slate-200">{c.name}</td>
+                <td className="td">
+                  {/* AQUÍ ESTÁ LA MAGIA: Cambio de categoría instantáneo */}
+                  <select 
+                    className={`bg-surface-700 text-xs font-semibold py-1.5 px-2 rounded border border-surface-600 outline-none cursor-pointer hover:border-brand-500 transition-colors
+                      ${c.category === 'Importado' ? 'text-yellow-500 border-yellow-500/30' : 'text-slate-300'}`}
+                    value={c.category}
+                    onChange={(e) => updateCategory.mutate({ id: c.id, category: e.target.value })}
+                  >
+                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                  </select>
+                </td>
+                <td className="td text-right">
+                  <button className="btn-icon text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setDelTgt(c)}>
+                    <Trash2 size={15}/>
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={3} className="td text-center py-12 text-slate-500">
+                  <Database size={32} className="mx-auto mb-3 opacity-20"/>
+                  <p>No se encontraron materiales.</p>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* MODAL PARA CREAR MANUAL */}
       <Modal open={modal} onClose={() => setModal(false)} title="Agregar Artículo al Catálogo">
         <div className="space-y-4">
-          <Field label="Nombre del Material"><input className="input" value={form.name} onChange={e => setForm({...form, name: e.target.value})}/></Field>
+          <Field label="Nombre del Material">
+            <input className="input" placeholder="Ej. Cemento UGC 50kg" value={form.name} onChange={e => setForm({...form, name: e.target.value})}/>
+          </Field>
           <Field label="Categoría">
             <select className="input" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
-              <option>Obra Gris</option><option>Acabados</option><option>Eléctrico</option><option>Tubería y PVC</option><option>Maderas y Cubiertas</option><option>Pinturas</option><option>Tornillería y Varios</option><option>Importado</option>
+              {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
             </select>
           </Field>
-          <div className="flex justify-end gap-2 pt-2"><button className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn-primary" onClick={() => save.mutate(form)}>Guardar</button></div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button className="btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+            <button className="btn-primary" onClick={() => save.mutate(form)} disabled={!form.name.trim() || save.isPending}>
+              {save.isPending ? 'Guardando...' : 'Guardar Material'}
+            </button>
+          </div>
         </div>
       </Modal>
 
-      <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)} title="Eliminar" message="¿Eliminar este material del catálogo maestro?"/>
+      <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)} 
+        title="Eliminar del Catálogo" message={`¿Estás seguro de eliminar "${delTgt?.name}"? Esto no afectará los pedidos que ya lo incluyan.`}/>
     </div>
   );
 }
