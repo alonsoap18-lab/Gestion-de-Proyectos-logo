@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Modal, Confirm, Spinner, Field } from '../components/ui';
-import { Plus, Trash2, Search, ShoppingCart, Calendar, MapPin, Download, CheckSquare, ArrowRight, ArrowLeft, PackageCheck, Archive } from 'lucide-react';
+import { Plus, Trash2, Search, ShoppingCart, Calendar, MapPin, Download, CheckSquare, ArrowRight, ArrowLeft, PackageCheck, Archive, Filter } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -17,6 +17,9 @@ const ALL_STATUSES = ['Pendiente', 'Aprobado', 'Enviado a Proveedor', 'Facturado
 // Estados divididos para las pestañas
 const ACTIVE_STATUSES = ['Pendiente', 'Aprobado', 'Enviado a Proveedor', 'Facturado Proveedor', 'Enviado'];
 const HISTORY_STATUSES = ['Recibido Sitio', 'Cancelado'];
+
+// Categorías para el filtro del catálogo
+const CATEGORIES = ['Obra Gris', 'Acabados', 'Eléctrico', 'Tubería y PVC', 'Maderas y Cubiertas', 'Pinturas', 'Tornillería y Varios', 'Importado', 'Agregado de Pedido'];
 
 const BLANK_ORDER = { project_id: '', expected_date: '', status: 'Pendiente', notes: '', items: [] };
 
@@ -34,7 +37,10 @@ export default function MaterialOrders() {
   const [activeTab, setActiveTab] = useState('Activos');
   const [filterProject, setFilterProject] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  
+  // Filtros del Sub-Catálogo (Paso 2)
   const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('Todos');
 
   // 1. LEER DATOS
   const { data: orders = [], isLoading: l1 } = useQuery({
@@ -147,7 +153,7 @@ export default function MaterialOrders() {
     XLSX.writeFile(wb, `Pedido_${order.order_number}.xlsx`);
   };
 
-  // Cambio de Pestaña (Limpia el filtro de estado al cambiar)
+  // Cambio de Pestaña
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setFilterStatus('');
@@ -155,14 +161,10 @@ export default function MaterialOrders() {
 
   // Filtrado general
   const filteredOrders = orders.filter(o => {
-    // Filtro por pestaña
     if (activeTab === 'Activos' && HISTORY_STATUSES.includes(o.status)) return false;
     if (activeTab === 'Historial' && ACTIVE_STATUSES.includes(o.status)) return false;
-    
-    // Filtros manuales
     if (filterProject && o.project_id !== filterProject) return false;
     if (filterStatus && o.status !== filterStatus) return false;
-    
     return true;
   });
 
@@ -244,7 +246,7 @@ export default function MaterialOrders() {
           <h1 className="page-title">Pedidos y Logística</h1>
           <p className="text-slate-400 text-sm mt-0.5">Gestión de compras, trazabilidad y pase a inventario</p>
         </div>
-        <button className="btn-primary" onClick={() => { setForm(BLANK_ORDER); setWizardStep(1); setModal(true); }}>
+        <button className="btn-primary" onClick={() => { setForm(BLANK_ORDER); setWizardStep(1); setModal(true); setCatalogCategoryFilter('Todos'); setCatalogSearch(''); }}>
           <Plus size={15}/> Nuevo Pedido
         </button>
       </div>
@@ -261,14 +263,12 @@ export default function MaterialOrders() {
         ))}
       </div>
 
-      {/* FILTROS */}
+      {/* FILTROS GENERALES */}
       <div className="flex flex-wrap gap-3 mb-6 bg-surface-800 p-3 rounded-xl border border-surface-600">
         <select className="input max-w-[250px]" value={filterProject} onChange={e => setFilterProject(e.target.value)}>
           <option value="">🏢 Todos los proyectos</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        
-        {/* Desplegable dinámico según la pestaña activa */}
         <select className="input max-w-[250px]" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="">📋 Todos los estados</option>
           {(activeTab === 'Activos' ? ACTIVE_STATUSES : HISTORY_STATUSES).map(s => (
@@ -371,16 +371,38 @@ export default function MaterialOrders() {
         {wizardStep === 2 && (
           <div className="flex flex-col md:flex-row gap-5 h-[500px] animate-in fade-in slide-in-from-right-4">
             
+            {/* PANEL IZQUIERDO: CATÁLOGO */}
             <div className="w-full md:w-1/2 flex flex-col bg-surface-800 rounded-xl border border-surface-600 overflow-hidden">
-              <div className="p-3 bg-surface-900 border-b border-surface-600">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Catálogo Maestro</div>
-                <div className="flex items-center gap-2 bg-surface-800 p-2 rounded-lg border border-surface-600 focus-within:border-brand-500">
-                  <Search size={16} className="text-slate-400"/>
-                  <input autoFocus className="bg-transparent border-none outline-none text-sm text-white flex-1" placeholder="Buscar material..." value={catalogSearch} onChange={e => setCatalogSearch(e.target.value)} />
+              <div className="p-3 bg-surface-900 border-b border-surface-600 space-y-2">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Catálogo Maestro</div>
+                
+                {/* NUEVOS FILTROS DE CATÁLOGO */}
+                <div className="flex flex-col gap-2">
+                  <select 
+                    className="input bg-surface-800 text-sm border-surface-600 py-1.5" 
+                    value={catalogCategoryFilter} 
+                    onChange={e => setCatalogCategoryFilter(e.target.value)}
+                  >
+                    <option value="Todos">Todas las categorías</option>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+
+                  <div className="flex items-center gap-2 bg-surface-800 p-2 rounded-lg border border-surface-600 focus-within:border-brand-500">
+                    <Search size={16} className="text-slate-400"/>
+                    <input className="bg-transparent border-none outline-none text-sm text-white flex-1" placeholder="Buscar material..." value={catalogSearch} onChange={e => setCatalogSearch(e.target.value)} />
+                  </div>
                 </div>
+
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                {catalog.filter(c => c.name.toLowerCase().includes(catalogSearch.toLowerCase())).slice(0,50).map(c => {
+                {catalog
+                  .filter(c => {
+                    const matchSearch = c.name.toLowerCase().includes(catalogSearch.toLowerCase());
+                    const matchCat = catalogCategoryFilter === 'Todos' || c.category === catalogCategoryFilter;
+                    return matchSearch && matchCat;
+                  })
+                  .slice(0,50)
+                  .map(c => {
                   const isSelected = form.items.some(x => x.catalog_id === c.id);
                   return (
                     <div key={c.id} onClick={() => toggleCatalogItem(c)}
@@ -400,6 +422,7 @@ export default function MaterialOrders() {
               </div>
             </div>
 
+            {/* PANEL DERECHO: CARRITO DEL PEDIDO */}
             <div className="w-full md:w-1/2 flex flex-col">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Carrito ({form.items.length})</div>
