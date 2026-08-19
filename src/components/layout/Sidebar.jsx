@@ -4,7 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, FolderKanban, CheckSquare, Users,
   Calendar, BarChart3, Wrench, Package, UserCog,
-  LogOut, ChevronLeft, ChevronRight, Truck, UserCircle // <-- Importamos UserCircle para el perfil
+  LogOut, ChevronLeft, ChevronRight, Truck, UserCircle,
+  Database, ShoppingCart // <-- Nuevos iconos agregados aquí
 } from 'lucide-react';
 
 const NAV = [
@@ -16,6 +17,8 @@ const NAV = [
   { to: '/reports',   icon: BarChart3,       label: 'Reportes'   },
   { to: '/machinery', icon: Wrench,          label: 'Maquinaria' },
   { to: '/materials', icon: Package,         label: 'Materiales' },
+  { to: '/catalog',   icon: Database,        label: 'Catálogo'   }, // <-- Nuevo
+  { to: '/orders',    icon: ShoppingCart,    label: 'Pedidos'    }, // <-- Nuevo
   { to: '/proveedores', icon: Truck,         label: 'Proveedores'},
   { to: '/users',     icon: UserCog,         label: 'Usuarios',  adminOnly: true },
 ];
@@ -25,7 +28,7 @@ const ROLE_COLOR = {
   Engineer:   'text-blue-400',
   Supervisor: 'text-purple-400',
   Worker:     'text-slate-400',
-  Observer:   'text-emerald-400', // Le agregamos un color al Observer por si acaso
+  Observer:   'text-emerald-400', 
 };
 
 export default function Sidebar({ collapsed, toggle }) {
@@ -58,7 +61,7 @@ export default function Sidebar({ collapsed, toggle }) {
       </div>
 
       {/* ── Nav ──────────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 custom-scrollbar">
         {NAV.map(({ to, icon: Icon, label, adminOnly }) => {
           if (adminOnly && user?.role !== 'Admin') return null;
           const active = to === '/'
@@ -101,12 +104,10 @@ export default function Sidebar({ collapsed, toggle }) {
           `}
         >
           {collapsed ? (
-            // Si está colapsado, mostramos solo un icono de usuario centrado
             <div className="w-full flex justify-center py-1 text-[#4a7fd4]">
               <UserCircle size={20} />
             </div>
           ) : (
-            // Si está expandido, mostramos nombre, rol y un iconito discreto
             <>
               <div className="flex-1 min-w-0 pr-1">
                 <div className="text-xs font-semibold text-slate-200 truncate">{user?.name}</div>
