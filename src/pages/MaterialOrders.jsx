@@ -54,11 +54,11 @@ export default function MaterialOrders() {
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: async () => { const { data } = await supabase.from('projects').select('*'); return data || []; } });
   const { data: catalog = [] } = useQuery({ queryKey: ['materials_catalog'], queryFn: async () => { const { data } = await supabase.from('materials_catalog').select('*').order('name'); return data || []; } });
 
-  // 2. GUARDAR PEDIDO NUEVO/EDITADO
+  // 2. GUARDAR PEDIDO NUEVO/EDITADO (Conserva Precios)
   const save = useMutation({
     mutationFn: async (d) => {
       let orderId = d.id;
-      const itemsToProcess = d.items || []; // Seguridad extra
+      const itemsToProcess = d.items || [];
       const processedItems = await Promise.all(itemsToProcess.map(async (item) => {
         if (!item.catalog_id && item.manual_name?.trim()) {
           const { data: newCat, error: catErr } = await supabase.from('materials_catalog')
@@ -79,7 +79,14 @@ export default function MaterialOrders() {
       }
 
       if (processedItems.length > 0) {
-        const lines = processedItems.map(i => ({ order_id: orderId, catalog_id: i.catalog_id || null, manual_name: i.manual_name || null, quantity: i.quantity, unit: i.unit }));
+        const lines = processedItems.map(i => ({ 
+          order_id: orderId, 
+          catalog_id: i.catalog_id || null, 
+          manual_name: i.manual_name || null, 
+          quantity: i.quantity, 
+          unit: i.unit,
+          unit_price: i.unit_price || 0 // AHORA LOS PRECIOS NO SE BORRAN AL EDITAR
+        }));
         const { error: errLines } = await supabase.from('purchase_order_items').insert(lines);
         if (errLines) throw errLines;
       }
@@ -113,13 +120,18 @@ export default function MaterialOrders() {
     mutationFn: async (order) => {
       await supabase.from('purchase_orders').update({ status: 'Recibido Sitio' }).eq('id', order.id);
       
+      const today = new Date().toISOString().split('T')[0];
+      
       const inventoryItems = (order.purchase_order_items || []).map(item => ({
         project_id: order.project_id,
         name: item.materials_catalog?.name || item.manual_name,
         quantity: item.quantity,
         unit: item.unit,
         cost_per_unit: item.unit_price || 0, 
-        entry_date: new Date().toISOString().split('T')[0] 
+        price: item.unit_price || 0, // Respaldo por si tu tabla usa 'price'
+        date: today,                 // Corrige el "Sin fecha"
+        entry_date: today,
+        invoice_number: order.order_number // Corrige el "S/N"
       }));
 
       if (inventoryItems.length > 0) {
@@ -150,9 +162,9 @@ export default function MaterialOrders() {
     const currentItems = form.items || [];
     const exists = currentItems.find(i => i.catalog_id === catItem.id);
     if (exists) setForm({ ...form, items: currentItems.filter(i => i.catalog_id !== catItem.id) });
-    else setForm({ ...form, items: [...currentItems, { catalog_id: catItem.id, manual_name: catItem.name, quantity: 1, unit: 'Unidades (ud)' }] });
+    else setForm({ ...form, items: [...currentItems, { catalog_id: catItem.id, manual_name: catItem.name, quantity: 1, unit: 'Unidades (ud)', unit_price: 0 }] });
   };
-  const addManualLine = () => { setForm({ ...form, items: [{ catalog_id: null, manual_name: '', quantity: 1, unit: 'Unidades (ud)' }, ...(form.items || [])] }); };
+  const addManualLine = () => { setForm({ ...form, items: [{ catalog_id: null, manual_name: '', quantity: 1, unit: 'Unidades (ud)', unit_price: 0 }, ...(form.items || [])] }); };
   const updateLine = (idx, field, val) => { const newI = [...(form.items || [])]; newI[idx][field] = val; setForm({...form, items: newI}); };
   const removeLine = (idx) => { const newI = [...(form.items || [])]; newI.splice(idx, 1); setForm({...form, items: newI}); };
 
@@ -257,7 +269,8 @@ export default function MaterialOrders() {
                     catalog_id: i.catalog_id, 
                     manual_name: i.materials_catalog?.name || i.manual_name, 
                     quantity: i.quantity || 1, 
-                    unit: i.unit || 'Unidades (ud)' 
+                    unit: i.unit || 'Unidades (ud)',
+                    unit_price: i.unit_price || 0 // AHORA CARGA EL PRECIO PARA NO PERDERLO
                   }));
                   setForm({...o, items: lines}); 
                   setWizardStep(1); 
@@ -429,11 +442,14 @@ export default function MaterialOrders() {
                       <input className="input text-sm bg-surface-900 flex-1" placeholder="Nombre del material..." value={item.manual_name || ''} disabled={!!item.catalog_id} onChange={e => updateLine(idx, 'manual_name', e.target.value)} required />
                       <button type="button" onClick={() => removeLine(idx)} className="btn-icon text-slate-500 hover:text-red-400 bg-surface-900 p-2 rounded"><Trash2 size={14}/></button>
                     </div>
+                    
+                    {/* AQUI AGREGAMOS LA CASILLA PARA EL COSTO DIRECTO EN EL CARRITO */}
                     <div className="flex gap-2">
-                      <input type="number" min="0.01" step="0.01" className="input w-24 text-center text-sm font-mono bg-surface-900" value={item.quantity || ''} onChange={e => updateLine(idx, 'quantity', e.target.value)} required />
+                      <input type="number" min="0.01" step="0.01" className="input w-20 text-center text-sm font-mono bg-surface-900" placeholder="Cant." value={item.quantity || ''} onChange={e => updateLine(idx, 'quantity', e.target.value)} required />
                       <select className="input flex-1 text-sm bg-surface-900" value={item.unit || ''} onChange={e => updateLine(idx, 'unit', e.target.value)}>
                         {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
+                      <input type="number" min="0" step="0.01" className="input w-24 text-right text-sm font-mono bg-surface-900" placeholder="₡ Costo/U" title="Costo Unitario (Opcional)" value={item.unit_price || ''} onChange={e => updateLine(idx, 'unit_price', e.target.value)} />
                     </div>
                   </div>
                 ))}
