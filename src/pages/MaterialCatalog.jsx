@@ -3,12 +3,23 @@ import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Spinner, Modal, Field, Confirm } from '../components/ui';
-import { Plus, Upload, Trash2, Database, Search, Edit3 } from 'lucide-react';
+import { Plus, Upload, Trash2, Database, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+// NUEVA LISTA CONDENSADA DE 10 CATEGORÍAS + 2 AUTOMÁTICAS
 const CATEGORIES = [
-  'Obra Gris', 'Acabados', 'Eléctrico', 'Tubería y PVC', 
-  'Maderas y Cubiertas', 'Pinturas', 'Tornillería y Varios', 'Importado'
+  'Obra Gris y Estructuras', 
+  'Paredes y Repellos', 
+  'Techos y Cielos', 
+  'Pisos, Loza y Acabados', 
+  'Puertas y Ventanas', 
+  'Maderas y Metales', 
+  'Pinturas y Químicos', 
+  'Inst. Eléctrica', 
+  'Inst. Mecánica', 
+  'Consumibles y Tornillería', 
+  'Importado', 
+  'Agregado de Pedido'
 ];
 
 export default function MaterialCatalog() {
@@ -16,7 +27,7 @@ export default function MaterialCatalog() {
   const fileRef = useRef(null);
   
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ name: '', category: 'Obra Gris' });
+  const [form, setForm] = useState({ name: '', category: 'Obra Gris y Estructuras' });
   const [delTgt, setDelTgt] = useState(null);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('Todos');
@@ -69,7 +80,6 @@ export default function MaterialCatalog() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws);
 
-        // Busca el nombre en la primera columna o en la que se llame "Material"
         const inserts = data.map(row => {
           const keys = Object.keys(row);
           const matKey = keys.find(k => /material|nombre|descripci[oó]n|articulo|item/i.test(k)) || keys[0];
@@ -80,7 +90,7 @@ export default function MaterialCatalog() {
           const { error } = await supabase.from('materials_catalog').insert(inserts);
           if (error) throw error;
           qc.invalidateQueries(['materials_catalog']);
-          setActiveTab('Importado'); // Movemos al usuario a la pestaña de importados
+          setActiveTab('Importado');
           alert(`Se cargaron ${inserts.length} materiales al catálogo.`);
         }
       } catch (err) { alert("Error leyendo el archivo."); }
@@ -89,10 +99,9 @@ export default function MaterialCatalog() {
     e.target.value = null;
   };
 
-  // FILTRADO (Por pestaña y por buscador)
   const filtered = catalog.filter(c => {
     const matchTab = activeTab === 'Todos' || c.category === activeTab;
-    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (c.name || '').toLowerCase().includes((search || '').toLowerCase());
     return matchTab && matchSearch;
   });
 
@@ -111,13 +120,12 @@ export default function MaterialCatalog() {
           </button>
           <input type="file" accept=".xlsx, .xls, .csv" hidden ref={fileRef} onChange={handleExcel} />
           
-          <button className="btn-primary" onClick={() => { setForm({ name: '', category: 'Obra Gris' }); setModal(true); }}>
+          <button className="btn-primary" onClick={() => { setForm({ name: '', category: 'Obra Gris y Estructuras' }); setModal(true); }}>
             <Plus size={15}/> Nuevo Artículo
           </button>
         </div>
       </div>
 
-      {/* TABS DE CATEGORÍAS */}
       <div className="flex overflow-x-auto gap-2 mb-4 pb-2 custom-scrollbar">
         <button 
           onClick={() => setActiveTab('Todos')}
@@ -132,7 +140,7 @@ export default function MaterialCatalog() {
             <button key={cat} onClick={() => setActiveTab(cat)}
               className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2
                 ${activeTab === cat ? 'bg-brand-500 text-white' : 'bg-surface-800 text-slate-400 hover:text-slate-200'}
-                ${cat === 'Importado' && count > 0 && activeTab !== 'Importado' ? 'border border-yellow-500/50 text-yellow-500' : ''}`}
+                ${['Importado', 'Agregado de Pedido'].includes(cat) && count > 0 && activeTab !== cat ? 'border border-yellow-500/50 text-yellow-500' : ''}`}
             >
               {cat}
               {count > 0 && (
@@ -145,7 +153,6 @@ export default function MaterialCatalog() {
         })}
       </div>
 
-      {/* BUSCADOR */}
       <div className="bg-surface-800 p-3 rounded-xl border border-surface-600 flex items-center gap-2 mb-4">
         <Search size={16} className="text-slate-400"/>
         <input 
@@ -156,7 +163,6 @@ export default function MaterialCatalog() {
         />
       </div>
 
-      {/* VISTA DE TABLA CON EDICIÓN RÁPIDA */}
       <div className="table-wrap">
         <table className="w-full">
           <thead>
@@ -171,11 +177,10 @@ export default function MaterialCatalog() {
               <tr key={c.id} className="tr-hover group">
                 <td className="td font-medium text-slate-200">{c.name}</td>
                 <td className="td">
-                  {/* AQUÍ ESTÁ LA MAGIA: Cambio de categoría instantáneo */}
                   <select 
-                    className={`bg-surface-700 text-xs font-semibold py-1.5 px-2 rounded border border-surface-600 outline-none cursor-pointer hover:border-brand-500 transition-colors
-                      ${c.category === 'Importado' ? 'text-yellow-500 border-yellow-500/30' : 'text-slate-300'}`}
-                    value={c.category}
+                    className={`bg-surface-700 text-xs font-semibold py-1.5 px-2 rounded border border-surface-600 outline-none cursor-pointer hover:border-brand-500 transition-colors max-w-[200px] truncate
+                      ${['Importado', 'Agregado de Pedido'].includes(c.category) ? 'text-yellow-500 border-yellow-500/30' : 'text-slate-300'}`}
+                    value={c.category || ''}
                     onChange={(e) => updateCategory.mutate({ id: c.id, category: e.target.value })}
                   >
                     {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -200,7 +205,6 @@ export default function MaterialCatalog() {
         </table>
       </div>
 
-      {/* MODAL PARA CREAR MANUAL */}
       <Modal open={modal} onClose={() => setModal(false)} title="Agregar Artículo al Catálogo">
         <div className="space-y-4">
           <Field label="Nombre del Material">
