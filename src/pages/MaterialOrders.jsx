@@ -105,15 +105,17 @@ export default function MaterialOrders() {
     onError: (e) => alert(`Error al guardar: ${e.message}`)
   });
 
-  // 3. RECIBIR EN SITIO (Inyectar a Inventario)
+  // 3. RECIBIR EN SITIO (Inyectar a Inventario - CORREGIDO)
   const receiveOrder = useMutation({
     mutationFn: async (order) => {
       await supabase.from('purchase_orders').update({ status: 'Recibido Sitio' }).eq('id', order.id);
       
+      // Corrección: Separamos el nombre de la unidad para enviarlos a sus columnas respectivas
       const inventoryItems = order.purchase_order_items.map(item => ({
         project_id: order.project_id,
-        name: `${item.materials_catalog?.name || item.manual_name} (${item.unit})`,
+        name: item.materials_catalog?.name || item.manual_name,
         quantity: item.quantity,
+        unit: item.unit, // Enviamos la unidad correctamente a la base de datos
         cost_per_unit: 0, 
       }));
 
@@ -371,12 +373,10 @@ export default function MaterialOrders() {
         {wizardStep === 2 && (
           <div className="flex flex-col md:flex-row gap-5 h-[500px] animate-in fade-in slide-in-from-right-4">
             
-            {/* PANEL IZQUIERDO: CATÁLOGO */}
             <div className="w-full md:w-1/2 flex flex-col bg-surface-800 rounded-xl border border-surface-600 overflow-hidden">
               <div className="p-3 bg-surface-900 border-b border-surface-600 space-y-2">
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Catálogo Maestro</div>
                 
-                {/* NUEVOS FILTROS DE CATÁLOGO */}
                 <div className="flex flex-col gap-2">
                   <select 
                     className="input bg-surface-800 text-sm border-surface-600 py-1.5" 
@@ -422,7 +422,6 @@ export default function MaterialOrders() {
               </div>
             </div>
 
-            {/* PANEL DERECHO: CARRITO DEL PEDIDO */}
             <div className="w-full md:w-1/2 flex flex-col">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Carrito ({form.items.length})</div>
@@ -468,7 +467,6 @@ export default function MaterialOrders() {
         )}
       </Modal>
 
-      {/* CONFIRMACIÓN PASE A INVENTARIO */}
       <Confirm open={!!receiveTgt} onClose={() => setReceiveTgt(null)} onConfirm={() => receiveOrder.mutate(receiveTgt)} 
         title="Recibir en Sitio" message={`¿Confirmas que el pedido ${receiveTgt?.order_number} llegó a obra? Esto registrará automáticamente todos los materiales en el inventario del proyecto y moverá el pedido al Historial.`}/>
 
