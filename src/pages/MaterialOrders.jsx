@@ -12,7 +12,22 @@ const UNITS = ['Unidades (ud)', 'Sacos', 'Varillas', 'Quintales (qq)', 'Metros C
 const ALL_STATUSES = ['Pendiente', 'Aprobado', 'Enviado a Proveedor', 'Facturado Proveedor', 'Enviado', 'Recibido Sitio', 'Cancelado'];
 const ACTIVE_STATUSES = ['Pendiente', 'Aprobado', 'Enviado a Proveedor', 'Facturado Proveedor', 'Enviado'];
 const HISTORY_STATUSES = ['Recibido Sitio', 'Cancelado'];
-const CATEGORIES = ['Obra Gris', 'Acabados', 'Eléctrico', 'Tubería y PVC', 'Maderas y Cubiertas', 'Pinturas', 'Tornillería y Varios', 'Importado', 'Agregado de Pedido'];
+
+// NUEVA LISTA CONDENSADA DE 10 CATEGORÍAS + 2 AUTOMÁTICAS
+const CATEGORIES = [
+  'Obra Gris y Estructuras', 
+  'Paredes y Repellos', 
+  'Techos y Cielos', 
+  'Pisos, Loza y Acabados', 
+  'Puertas y Ventanas', 
+  'Maderas y Metales', 
+  'Pinturas y Químicos', 
+  'Inst. Eléctrica', 
+  'Inst. Mecánica', 
+  'Consumibles y Tornillería', 
+  'Importado', 
+  'Agregado de Pedido'
+];
 
 const BLANK_ORDER = { project_id: '', expected_date: '', status: 'Pendiente', notes: '', items: [] };
 
@@ -106,12 +121,10 @@ export default function MaterialOrders() {
     onError: (e) => alert(`Error al procesar factura: ${e.message}`)
   });
 
-  // RECIBIR ORDEN (AHORA PRIMERO INVENTARIO, DESPUES ESTADO)
   const receiveOrder = useMutation({
     mutationFn: async (order) => {
       const today = new Date().toISOString().split('T')[0];
       
-      // 1. Guardar en Inventario PRIMERO
       const inventoryItems = (order.purchase_order_items || []).map(item => ({
         project_id: order.project_id,
         name: item.materials_catalog?.name || item.manual_name,
@@ -125,10 +138,9 @@ export default function MaterialOrders() {
 
       if (inventoryItems.length > 0) {
         const { error: insertErr } = await supabase.from('materials').insert(inventoryItems);
-        if (insertErr) throw insertErr; // Si falla aquí, se detiene y no cambia el estado del pedido
+        if (insertErr) throw insertErr; 
       }
 
-      // 2. Si guardó bien en el inventario, AHORA SI cambiamos el estado del pedido
       const { error: updateErr } = await supabase.from('purchase_orders').update({ status: 'Recibido Sitio' }).eq('id', order.id);
       if (updateErr) throw updateErr;
     },
@@ -138,9 +150,8 @@ export default function MaterialOrders() {
       setReceiveTgt(null); 
     },
     onError: (e) => {
-      // ESCUDO DE ERRORES: Te mostrará por qué falló en lugar de quedarse congelado
       alert(`Error al enviar a Inventario:\n${e.message}\n\nAsegúrate de haber ejecutado el código SQL en Supabase para las nuevas columnas.`);
-      setReceiveTgt(null); // Quita el modal para destrabar la pantalla
+      setReceiveTgt(null); 
     }
   });
 
