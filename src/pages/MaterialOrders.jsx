@@ -25,22 +25,17 @@ export default function MaterialOrders() {
   const [form, setForm] = useState(BLANK_ORDER);
   const [delTgt, setDelTgt] = useState(null);
   
-  // Modal de Recepción (Campo)
   const [receiveTgt, setReceiveTgt] = useState(null);
-  
-  // Modal de Facturación (Oficina)
   const [billingModal, setBillingModal] = useState(false);
   const [billingOrder, setBillingOrder] = useState(null);
   const [billingItems, setBillingItems] = useState([]);
 
-  // Filtros y Pestañas
   const [activeTab, setActiveTab] = useState('Activos');
   const [filterProject, setFilterProject] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('Todos');
 
-  // 1. LEER DATOS
   const { data: orders = [], isLoading: l1 } = useQuery({
     queryKey: ['purchase_orders'],
     queryFn: async () => {
@@ -54,7 +49,6 @@ export default function MaterialOrders() {
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: async () => { const { data } = await supabase.from('projects').select('*'); return data || []; } });
   const { data: catalog = [] } = useQuery({ queryKey: ['materials_catalog'], queryFn: async () => { const { data } = await supabase.from('materials_catalog').select('*').order('name'); return data || []; } });
 
-  // 2. GUARDAR PEDIDO NUEVO/EDITADO (Conserva Precios)
   const save = useMutation({
     mutationFn: async (d) => {
       let orderId = d.id;
@@ -80,21 +74,17 @@ export default function MaterialOrders() {
 
       if (processedItems.length > 0) {
         const lines = processedItems.map(i => ({ 
-          order_id: orderId, 
-          catalog_id: i.catalog_id || null, 
-          manual_name: i.manual_name || null, 
-          quantity: i.quantity, 
-          unit: i.unit,
-          unit_price: i.unit_price || 0 // AHORA LOS PRECIOS NO SE BORRAN AL EDITAR
+          order_id: orderId, catalog_id: i.catalog_id || null, manual_name: i.manual_name || null, 
+          quantity: i.quantity, unit: i.unit, unit_price: i.unit_price || 0 
         }));
         const { error: errLines } = await supabase.from('purchase_order_items').insert(lines);
         if (errLines) throw errLines;
       }
     },
-    onSuccess: () => { qc.invalidateQueries(['purchase_orders']); qc.invalidateQueries(['materials_catalog']); setModal(false); setWizardStep(1); }
+    onSuccess: () => { qc.invalidateQueries(['purchase_orders']); qc.invalidateQueries(['materials_catalog']); setModal(false); setWizardStep(1); },
+    onError: (e) => alert(`Error al guardar: ${e.message}`)
   });
 
-  // 3. FACTURACIÓN Y DIVISIÓN AUTOMÁTICA (OFICINA)
   const processBilling = useMutation({
     mutationFn: async () => {
       await Promise.all(billingItems.map(item => 
@@ -112,34 +102,46 @@ export default function MaterialOrders() {
       }
       await supabase.from('purchase_orders').update({ status: 'Enviado' }).eq('id', billingOrder.id);
     },
-    onSuccess: () => { qc.invalidateQueries(['purchase_orders']); setBillingModal(false); }
+    onSuccess: () => { qc.invalidateQueries(['purchase_orders']); setBillingModal(false); },
+    onError: (e) => alert(`Error al procesar factura: ${e.message}`)
   });
 
-  // 4. RECIBIR EN SITIO Y PASAR A INVENTARIO (CAMPO)
+  // RECIBIR ORDEN (AHORA PRIMERO INVENTARIO, DESPUES ESTADO)
   const receiveOrder = useMutation({
     mutationFn: async (order) => {
-      await supabase.from('purchase_orders').update({ status: 'Recibido Sitio' }).eq('id', order.id);
-      
       const today = new Date().toISOString().split('T')[0];
       
+      // 1. Guardar en Inventario PRIMERO
       const inventoryItems = (order.purchase_order_items || []).map(item => ({
         project_id: order.project_id,
         name: item.materials_catalog?.name || item.manual_name,
         quantity: item.quantity,
         unit: item.unit,
         cost_per_unit: item.unit_price || 0, 
-        price: item.unit_price || 0, // Respaldo por si tu tabla usa 'price'
-        date: today,                 // Corrige el "Sin fecha"
+        date: today,
         entry_date: today,
-        invoice_number: order.order_number // Corrige el "S/N"
+        invoice_number: order.order_number
       }));
 
       if (inventoryItems.length > 0) {
-        const { error } = await supabase.from('materials').insert(inventoryItems);
-        if (error) throw error;
+        const { error: insertErr } = await supabase.from('materials').insert(inventoryItems);
+        if (insertErr) throw insertErr; // Si falla aquí, se detiene y no cambia el estado del pedido
       }
+
+      // 2. Si guardó bien en el inventario, AHORA SI cambiamos el estado del pedido
+      const { error: updateErr } = await supabase.from('purchase_orders').update({ status: 'Recibido Sitio' }).eq('id', order.id);
+      if (updateErr) throw updateErr;
     },
-    onSuccess: () => { qc.invalidateQueries(['purchase_orders']); qc.invalidateQueries(['materials']); setReceiveTgt(null); }
+    onSuccess: () => { 
+      qc.invalidateQueries(['purchase_orders']); 
+      qc.invalidateQueries(['materials']); 
+      setReceiveTgt(null); 
+    },
+    onError: (e) => {
+      // ESCUDO DE ERRORES: Te mostrará por qué falló en lugar de quedarse congelado
+      alert(`Error al enviar a Inventario:\n${e.message}\n\nAsegúrate de haber ejecutado el código SQL en Supabase para las nuevas columnas.`);
+      setReceiveTgt(null); // Quita el modal para destrabar la pantalla
+    }
   });
 
   const del = useMutation({ mutationFn: async (id) => { await supabase.from('purchase_orders').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries(['purchase_orders']); setDelTgt(null); } });
@@ -266,17 +268,10 @@ export default function MaterialOrders() {
                 )}
                 <button className="btn-icon text-brand-400 hover:bg-brand-500/20" title="Editar / Ver Detalle" onClick={() => { 
                   const lines = (o.purchase_order_items || []).map(i => ({ 
-                    catalog_id: i.catalog_id, 
-                    manual_name: i.materials_catalog?.name || i.manual_name, 
-                    quantity: i.quantity || 1, 
-                    unit: i.unit || 'Unidades (ud)',
-                    unit_price: i.unit_price || 0 // AHORA CARGA EL PRECIO PARA NO PERDERLO
+                    catalog_id: i.catalog_id, manual_name: i.materials_catalog?.name || i.manual_name, 
+                    quantity: i.quantity || 1, unit: i.unit || 'Unidades (ud)', unit_price: i.unit_price || 0 
                   }));
-                  setForm({...o, items: lines}); 
-                  setWizardStep(1); 
-                  setModal(true); 
-                  setCatalogCategoryFilter('Todos'); 
-                  setCatalogSearch('');
+                  setForm({...o, items: lines}); setWizardStep(1); setModal(true); setCatalogCategoryFilter('Todos'); setCatalogSearch('');
                 }}><CheckSquare size={16}/></button>
                 <button className="btn-icon text-slate-500 hover:text-red-400 hover:bg-red-500/20" title="Eliminar" onClick={() => setDelTgt(o)}><Trash2 size={16}/></button>
               </div>
@@ -302,7 +297,6 @@ export default function MaterialOrders() {
 
       {/* ---------------- MODALES ---------------- */}
 
-      {/* 1. MODAL: FACTURACIÓN */}
       <Modal open={billingModal} onClose={() => setBillingModal(false)} title={`Facturación de ${billingOrder?.order_number}`} size="xl">
         <div className="text-sm text-slate-400 mb-4 bg-surface-800 p-3 rounded-lg border border-surface-600">
           Revisa la factura del proveedor. <b>Desmarca (quita el check)</b> a los artículos que no llegaron para enviarlos automáticamente a un pedido pendiente.
@@ -337,7 +331,6 @@ export default function MaterialOrders() {
         </div>
       </Modal>
 
-      {/* 2. MODAL: RECIBIR EN CAMPO */}
       <Modal open={!!receiveTgt} onClose={() => setReceiveTgt(null)} title="Recepción en Sitio" size="md">
         <div className="py-2">
           <div className="flex items-center gap-4 mb-5">
@@ -359,7 +352,6 @@ export default function MaterialOrders() {
         </div>
       </Modal>
 
-      {/* 3. MODAL WIZARD (CREAR/EDITAR) */}
       <Modal open={modal} onClose={() => setModal(false)} title={form.id ? `Editando ${form.order_number}` : 'Nuevo Pedido'} size="2xl">
         <div className="flex gap-2 mb-6 border-b border-surface-600 pb-3">
           <div className={`flex-1 text-center text-sm font-bold pb-2 border-b-2 transition-all ${wizardStep === 1 ? 'border-brand-500 text-brand-400' : 'border-transparent text-slate-500'}`}>1. Datos Generales</div>
@@ -442,8 +434,6 @@ export default function MaterialOrders() {
                       <input className="input text-sm bg-surface-900 flex-1" placeholder="Nombre del material..." value={item.manual_name || ''} disabled={!!item.catalog_id} onChange={e => updateLine(idx, 'manual_name', e.target.value)} required />
                       <button type="button" onClick={() => removeLine(idx)} className="btn-icon text-slate-500 hover:text-red-400 bg-surface-900 p-2 rounded"><Trash2 size={14}/></button>
                     </div>
-                    
-                    {/* AQUI AGREGAMOS LA CASILLA PARA EL COSTO DIRECTO EN EL CARRITO */}
                     <div className="flex gap-2">
                       <input type="number" min="0.01" step="0.01" className="input w-20 text-center text-sm font-mono bg-surface-900" placeholder="Cant." value={item.quantity || ''} onChange={e => updateLine(idx, 'quantity', e.target.value)} required />
                       <select className="input flex-1 text-sm bg-surface-900" value={item.unit || ''} onChange={e => updateLine(idx, 'unit', e.target.value)}>
