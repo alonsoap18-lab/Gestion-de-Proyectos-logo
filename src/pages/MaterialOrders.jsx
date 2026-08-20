@@ -58,7 +58,8 @@ export default function MaterialOrders() {
   const save = useMutation({
     mutationFn: async (d) => {
       let orderId = d.id;
-      const processedItems = await Promise.all(d.items.map(async (item) => {
+      const itemsToProcess = d.items || []; // Seguridad extra
+      const processedItems = await Promise.all(itemsToProcess.map(async (item) => {
         if (!item.catalog_id && item.manual_name?.trim()) {
           const { data: newCat, error: catErr } = await supabase.from('materials_catalog')
             .insert([{ name: item.manual_name, category: 'Agregado de Pedido' }]).select().single();
@@ -89,29 +90,19 @@ export default function MaterialOrders() {
   // 3. FACTURACIÓN Y DIVISIÓN AUTOMÁTICA (OFICINA)
   const processBilling = useMutation({
     mutationFn: async () => {
-      // a. Actualizar precios unitarios
       await Promise.all(billingItems.map(item => 
         supabase.from('purchase_order_items').update({ unit_price: item.unit_price }).eq('id', item.id)
       ));
-
-      // b. Separar los no enviados (Backorder)
       const unfulfilledIds = billingItems.filter(i => !i.fulfilled).map(i => i.id);
       
       if (unfulfilledIds.length > 0) {
-        // Crear pedido hijo (consecutivo automático)
         const { data: newOrder, error: errNew } = await supabase.from('purchase_orders').insert({
-          project_id: billingOrder.project_id,
-          requested_by: user.id,
-          status: 'Pendiente',
+          project_id: billingOrder.project_id, requested_by: user.id, status: 'Pendiente',
           notes: `Backorder autogenerado por faltantes del pedido original: ${billingOrder.order_number}`
         }).select().single();
         if (errNew) throw errNew;
-
-        // Mover líneas al nuevo pedido
         await supabase.from('purchase_order_items').update({ order_id: newOrder.id }).in('id', unfulfilledIds);
       }
-
-      // c. Actualizar pedido original a Enviado (listo para campo)
       await supabase.from('purchase_orders').update({ status: 'Enviado' }).eq('id', billingOrder.id);
     },
     onSuccess: () => { qc.invalidateQueries(['purchase_orders']); setBillingModal(false); }
@@ -122,13 +113,13 @@ export default function MaterialOrders() {
     mutationFn: async (order) => {
       await supabase.from('purchase_orders').update({ status: 'Recibido Sitio' }).eq('id', order.id);
       
-      const inventoryItems = order.purchase_order_items.map(item => ({
+      const inventoryItems = (order.purchase_order_items || []).map(item => ({
         project_id: order.project_id,
         name: item.materials_catalog?.name || item.manual_name,
         quantity: item.quantity,
         unit: item.unit,
-        cost_per_unit: item.unit_price || 0, // ¡Ahora toma el precio facturado!
-        entry_date: new Date().toISOString().split('T')[0] // Fecha de ingreso físico
+        cost_per_unit: item.unit_price || 0, 
+        entry_date: new Date().toISOString().split('T')[0] 
       }));
 
       if (inventoryItems.length > 0) {
@@ -141,7 +132,6 @@ export default function MaterialOrders() {
 
   const del = useMutation({ mutationFn: async (id) => { await supabase.from('purchase_orders').delete().eq('id', id); }, onSuccess: () => { qc.invalidateQueries(['purchase_orders']); setDelTgt(null); } });
 
-  // Cálculos de Facturación
   const subtotal = billingItems.filter(i => i.fulfilled).reduce((acc, curr) => acc + (curr.quantity * curr.unit_price), 0);
   const taxes = subtotal * 0.13;
   const total = subtotal + taxes;
@@ -156,14 +146,15 @@ export default function MaterialOrders() {
     return true;
   });
 
-  // Funciones de Carrito General
   const toggleCatalogItem = (catItem) => {
-    const exists = form.items.find(i => i.catalog_id === catItem.id);
-    if (exists) setForm({ ...form, items: form.items.filter(i => i.catalog_id !== catItem.id) });
-    else setForm({ ...form, items: [...form.items, { catalog_id: catItem.id, manual_name: catItem.name, quantity: 1, unit: 'Unidades (ud)' }] });
+    const currentItems = form.items || [];
+    const exists = currentItems.find(i => i.catalog_id === catItem.id);
+    if (exists) setForm({ ...form, items: currentItems.filter(i => i.catalog_id !== catItem.id) });
+    else setForm({ ...form, items: [...currentItems, { catalog_id: catItem.id, manual_name: catItem.name, quantity: 1, unit: 'Unidades (ud)' }] });
   };
-  const updateLine = (idx, field, val) => { const newI = [...form.items]; newI[idx][field] = val; setForm({...form, items: newI}); };
-  const removeLine = (idx) => { const newI = [...form.items]; newI.splice(idx, 1); setForm({...form, items: newI}); };
+  const addManualLine = () => { setForm({ ...form, items: [{ catalog_id: null, manual_name: '', quantity: 1, unit: 'Unidades (ud)' }, ...(form.items || [])] }); };
+  const updateLine = (idx, field, val) => { const newI = [...(form.items || [])]; newI[idx][field] = val; setForm({...form, items: newI}); };
+  const removeLine = (idx) => { const newI = [...(form.items || [])]; newI.splice(idx, 1); setForm({...form, items: newI}); };
 
   const renderStepper = (currentStatus) => {
     if (currentStatus === 'Cancelado') return <div className="mt-4 p-2 bg-red-500/10 text-red-500 text-center font-bold text-xs uppercase tracking-wider rounded-lg border border-red-500/20">Pedido Cancelado</div>;
@@ -203,7 +194,7 @@ export default function MaterialOrders() {
           <h1 className="page-title">Pedidos y Logística</h1>
           <p className="text-slate-400 text-sm mt-0.5">Gestión de compras, trazabilidad y pase a inventario</p>
         </div>
-        <button className="btn-primary" onClick={() => { setForm(BLANK_ORDER); setWizardStep(1); setModal(true); }}>
+        <button className="btn-primary" onClick={() => { setForm(BLANK_ORDER); setWizardStep(1); setModal(true); setCatalogCategoryFilter('Todos'); setCatalogSearch(''); }}>
           <Plus size={15}/> Nuevo Pedido
         </button>
       </div>
@@ -249,23 +240,30 @@ export default function MaterialOrders() {
               </div>
               
               <div className="flex gap-1 bg-surface-800 p-1 rounded-lg border border-surface-600 relative z-10">
-                {/* BOTÓN OFICINA: FACTURAR */}
                 {activeTab === 'Activos' && o.status !== 'Enviado' && (
                   <button className="btn-icon text-blue-400 hover:bg-blue-500/20" title="Ingresar Factura y Precios (Oficina)" onClick={() => {
                     setBillingOrder(o);
-                    setBillingItems(o.purchase_order_items.map(i => ({ id: i.id, name: i.materials_catalog?.name || i.manual_name, quantity: i.quantity, unit: i.unit, unit_price: i.unit_price || 0, fulfilled: true })));
+                    setBillingItems((o.purchase_order_items || []).map(i => ({ id: i.id, name: i.materials_catalog?.name || i.manual_name, quantity: i.quantity, unit: i.unit, unit_price: i.unit_price || 0, fulfilled: true })));
                     setBillingModal(true);
                   }}><Receipt size={16}/></button>
                 )}
-                {/* BOTÓN CAMPO: RECIBIR EN SITIO */}
                 {activeTab === 'Activos' && (
                   <button className="btn-icon text-green-400 hover:bg-green-500/20" title="Recibir en Sitio (Campo)" onClick={() => setReceiveTgt(o)}>
                     <PackageCheck size={16}/>
                   </button>
                 )}
-                <button className="btn-icon text-brand-400 hover:bg-brand-500/20" title="Editar" onClick={() => { 
-                  const lines = o.purchase_order_items.map(i => ({ catalog_id: i.catalog_id, manual_name: i.materials_catalog?.name || i.manual_name, quantity: i.quantity, unit: i.unit }));
-                  setForm({...o, items: lines}); setWizardStep(1); setModal(true); 
+                <button className="btn-icon text-brand-400 hover:bg-brand-500/20" title="Editar / Ver Detalle" onClick={() => { 
+                  const lines = (o.purchase_order_items || []).map(i => ({ 
+                    catalog_id: i.catalog_id, 
+                    manual_name: i.materials_catalog?.name || i.manual_name, 
+                    quantity: i.quantity || 1, 
+                    unit: i.unit || 'Unidades (ud)' 
+                  }));
+                  setForm({...o, items: lines}); 
+                  setWizardStep(1); 
+                  setModal(true); 
+                  setCatalogCategoryFilter('Todos'); 
+                  setCatalogSearch('');
                 }}><CheckSquare size={16}/></button>
                 <button className="btn-icon text-slate-500 hover:text-red-400 hover:bg-red-500/20" title="Eliminar" onClick={() => setDelTgt(o)}><Trash2 size={16}/></button>
               </div>
@@ -274,7 +272,7 @@ export default function MaterialOrders() {
             {renderStepper(o.status)}
 
             <div className="mt-4 bg-surface-900 rounded-lg p-3 border border-surface-700">
-              <div className="text-xs uppercase font-bold text-slate-500 mb-2 border-b border-surface-700 pb-2">Resumen de Materiales ({o.purchase_order_items?.length || 0})</div>
+              <div className="text-xs uppercase font-bold text-slate-500 mb-2 border-b border-surface-700 pb-2">Resumen de Materiales ({(o.purchase_order_items || []).length})</div>
               <ul className="space-y-1.5 max-h-24 overflow-y-auto pr-2 custom-scrollbar">
                 {(o.purchase_order_items || []).map((item) => (
                   <li key={item.id} className="flex justify-between text-sm">
@@ -291,13 +289,13 @@ export default function MaterialOrders() {
 
       {/* ---------------- MODALES ---------------- */}
 
-      {/* 1. MODAL: FACTURACIÓN Y PRECIOS (OFICINA) */}
+      {/* 1. MODAL: FACTURACIÓN */}
       <Modal open={billingModal} onClose={() => setBillingModal(false)} title={`Facturación de ${billingOrder?.order_number}`} size="xl">
         <div className="text-sm text-slate-400 mb-4 bg-surface-800 p-3 rounded-lg border border-surface-600">
           Revisa la factura del proveedor. <b>Desmarca (quita el check)</b> a los artículos que no llegaron para enviarlos automáticamente a un pedido pendiente.
         </div>
         <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
-          {billingItems.map((item, index) => (
+          {(billingItems || []).map((item, index) => (
             <div key={item.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${item.fulfilled ? 'bg-surface-800 border-surface-600' : 'bg-surface-900 border-dashed border-slate-600 opacity-60'}`}>
               <input type="checkbox" className="w-5 h-5 accent-brand-500 rounded border-surface-600 cursor-pointer" checked={item.fulfilled}
                 onChange={(e) => { const newArr = [...billingItems]; newArr[index].fulfilled = e.target.checked; setBillingItems(newArr); }} />
@@ -326,19 +324,17 @@ export default function MaterialOrders() {
         </div>
       </Modal>
 
-      {/* 2. MODAL PERSONALIZADO: RECIBIR EN CAMPO (Seguro, sin palabra Eliminar) */}
+      {/* 2. MODAL: RECIBIR EN CAMPO */}
       <Modal open={!!receiveTgt} onClose={() => setReceiveTgt(null)} title="Recepción en Sitio" size="md">
         <div className="py-2">
           <div className="flex items-center gap-4 mb-5">
             <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
               <PackageCheck size={24} className="text-green-500" />
             </div>
-            <p className="text-slate-300 text-sm">
-              ¿Confirmas que el material del pedido <strong className="text-white">{receiveTgt?.order_number}</strong> está físicamente en la obra?
-            </p>
+            <p className="text-slate-300 text-sm">¿Confirmas que el material del pedido <strong className="text-white">{receiveTgt?.order_number}</strong> está físicamente en la obra?</p>
           </div>
           <div className="bg-surface-800 p-3 rounded-lg border border-surface-600 text-xs text-slate-400 mb-6">
-            Al confirmar, el sistema registrará automáticamente la <b>fecha de hoy</b> y los <b>costos facturados</b> en el inventario general del proyecto. El pedido pasará al Historial.
+            Al confirmar, el sistema registrará automáticamente la <b>fecha de hoy</b> y los <b>costos facturados</b> en el inventario general del proyecto.
           </div>
           <div className="flex justify-end gap-3">
             <button className="btn-ghost" onClick={() => setReceiveTgt(null)}>Cancelar</button>
@@ -399,12 +395,12 @@ export default function MaterialOrders() {
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                {catalog.filter(c => {
-                    const matchSearch = c.name.toLowerCase().includes(catalogSearch.toLowerCase());
+                {(catalog || []).filter(c => {
+                    const matchSearch = (c.name || '').toLowerCase().includes((catalogSearch || '').toLowerCase());
                     const matchCat = catalogCategoryFilter === 'Todos' || c.category === catalogCategoryFilter;
                     return matchSearch && matchCat;
                   }).slice(0,50).map(c => {
-                  const isSelected = form.items.some(x => x.catalog_id === c.id);
+                  const isSelected = (form.items || []).some(x => x.catalog_id && x.catalog_id === c.id);
                   return (
                     <div key={c.id} onClick={() => toggleCatalogItem(c)} className={`flex justify-between items-center p-2.5 rounded-lg cursor-pointer transition-all border ${isSelected ? 'bg-brand-500/20 border-brand-500/50' : 'bg-surface-900 border-surface-700 hover:border-surface-500'}`}>
                       <div className="flex-1 min-w-0 pr-2">
@@ -421,27 +417,27 @@ export default function MaterialOrders() {
             </div>
             <div className="w-full md:w-1/2 flex flex-col">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Carrito ({form.items.length})</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">Carrito ({(form.items || []).length})</div>
                 <button type="button" onClick={addManualLine} className="text-[10px] text-brand-400 font-bold bg-brand-500/10 px-2 py-1 rounded hover:bg-brand-500/20 uppercase tracking-wider flex items-center gap-1">
                   <Plus size={12}/> Línea Manual
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
-                {form.items.map((item, idx) => (
+                {(form.items || []).map((item, idx) => (
                   <div key={idx} className={`bg-surface-800 p-2.5 rounded-xl border ${!item.catalog_id ? 'border-dashed border-brand-500/50 bg-brand-500/5' : 'border-surface-600'}`}>
                     <div className="flex justify-between gap-2 mb-2">
                       <input className="input text-sm bg-surface-900 flex-1" placeholder="Nombre del material..." value={item.manual_name || ''} disabled={!!item.catalog_id} onChange={e => updateLine(idx, 'manual_name', e.target.value)} required />
                       <button type="button" onClick={() => removeLine(idx)} className="btn-icon text-slate-500 hover:text-red-400 bg-surface-900 p-2 rounded"><Trash2 size={14}/></button>
                     </div>
                     <div className="flex gap-2">
-                      <input type="number" min="0.01" step="0.01" className="input w-24 text-center text-sm font-mono bg-surface-900" value={item.quantity} onChange={e => updateLine(idx, 'quantity', e.target.value)} required />
-                      <select className="input flex-1 text-sm bg-surface-900" value={item.unit} onChange={e => updateLine(idx, 'unit', e.target.value)}>
+                      <input type="number" min="0.01" step="0.01" className="input w-24 text-center text-sm font-mono bg-surface-900" value={item.quantity || ''} onChange={e => updateLine(idx, 'quantity', e.target.value)} required />
+                      <select className="input flex-1 text-sm bg-surface-900" value={item.unit || ''} onChange={e => updateLine(idx, 'unit', e.target.value)}>
                         {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                     </div>
                   </div>
                 ))}
-                {form.items.length === 0 && (
+                {(form.items || []).length === 0 && (
                   <div className="h-full flex flex-col items-center justify-center text-slate-500 p-6 text-center border-2 border-dashed border-surface-600 rounded-xl">
                     <ShoppingCart size={32} className="mb-2 opacity-30"/> <p className="text-sm">Selecciona materiales del catálogo o agrega una línea manual.</p>
                   </div>
@@ -449,7 +445,7 @@ export default function MaterialOrders() {
               </div>
               <div className="flex justify-between items-center pt-4 border-t border-surface-600 mt-4">
                 <button type="button" className="btn-ghost flex items-center gap-1" onClick={() => setWizardStep(1)}><ArrowLeft size={16}/> Volver</button>
-                <button type="button" className="btn-primary px-6" onClick={() => save.mutate(form)} disabled={form.items.length === 0 || save.isPending}>
+                <button type="button" className="btn-primary px-6" onClick={() => save.mutate(form)} disabled={(form.items || []).length === 0 || save.isPending}>
                   {save.isPending ? 'Guardando...' : 'Confirmar Pedido'}
                 </button>
               </div>
@@ -458,7 +454,6 @@ export default function MaterialOrders() {
         )}
       </Modal>
 
-      {/* MODAL ELIMINAR NORMAL */}
       <Confirm open={!!delTgt} onClose={() => setDelTgt(null)} onConfirm={() => del.mutate(delTgt.id)} title="Eliminar Pedido" message="¿Eliminar este pedido y todas sus líneas de la base de datos?"/>
     </div>
   );
